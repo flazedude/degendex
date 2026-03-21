@@ -50,12 +50,12 @@ function ChartsContent() {
     selectedPair.replace("CRYPTO:", "").replace("BINANCE:", "");
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pt-8 pb-20">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">
+    <div className="mx-auto w-full max-w-7xl px-4 pt-4 pb-16">
+      <div className="mb-3">
+        <h1 className="text-xl font-bold">
           <span className="text-gradient">Charts</span>
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Full TradingView charts with indicators, drawing tools, and real-time
           data.
         </p>

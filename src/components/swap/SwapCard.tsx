@@ -49,7 +49,7 @@ export function SwapCard() {
 
       <CardContent className="space-y-3">
         {/* Input Token */}
-        <div className="rounded-xl bg-background/50 p-4">
+        <div className="bg-background/50 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs text-muted-foreground">You pay</span>
           </div>
@@ -91,7 +91,7 @@ export function SwapCard() {
         </div>
 
         {/* Output Token */}
-        <div className="rounded-xl bg-background/50 p-4">
+        <div className="bg-background/50 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs text-muted-foreground">You receive</span>
           </div>
@@ -122,7 +122,7 @@ export function SwapCard() {
 
         {/* Rate & Price Impact */}
         {rate && (
-          <div className="space-y-1 rounded-lg bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+          <div className="space-y-1 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
             <div className="flex justify-between">
               <span>Rate</span>
               <span>

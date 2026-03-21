@@ -105,7 +105,7 @@ export function AddLiquidity({ pool, onBack }: AddLiquidityProps) {
 
       <CardContent className="space-y-4">
         {/* Pool Stats */}
-        <div className="grid grid-cols-3 gap-3 rounded-lg bg-background/50 p-3">
+        <div className="grid grid-cols-3 gap-3 bg-background/50 p-2.5">
           <div className="text-center">
             <p className="text-[10px] text-muted-foreground">TVL</p>
             <p className="text-sm font-medium">${formatNumber(pool.tvl)}</p>
@@ -123,7 +123,7 @@ export function AddLiquidity({ pool, onBack }: AddLiquidityProps) {
         </div>
 
         {/* Token A Input */}
-        <div className="rounded-xl bg-background/50 p-4">
+        <div className="bg-background/50 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{pool.mintA.symbol}</span>
           </div>
@@ -147,7 +147,7 @@ export function AddLiquidity({ pool, onBack }: AddLiquidityProps) {
         </div>
 
         {/* Token B Input */}
-        <div className="rounded-xl bg-background/50 p-4">
+        <div className="bg-background/50 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{pool.mintB.symbol}</span>
           </div>
@@ -171,7 +171,7 @@ export function AddLiquidity({ pool, onBack }: AddLiquidityProps) {
         </div>
 
         {/* Price info */}
-        <div className="rounded-lg bg-background/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
+        <div className="bg-background/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
           <div className="flex justify-between">
             <span>Pool Price</span>
             <span>1 {pool.mintA.symbol} = {pool.price.toFixed(6)} {pool.mintB.symbol}</span>
@@ -184,7 +184,7 @@ export function AddLiquidity({ pool, onBack }: AddLiquidityProps) {
 
         {/* Warning for concentrated */}
         {pool.type === "Concentrated" && (
-          <div className="flex items-start gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
+          <div className="flex items-start gap-2 border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
             <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
             <p className="text-xs text-yellow-500/80">
               Concentrated liquidity requires setting a price range. Full SDK integration coming soon.

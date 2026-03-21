@@ -40,7 +40,7 @@ export function PoolList({ onSelectPool }: PoolListProps) {
         onSortChange={(s) => { setSortBy(s); setPage(1); }}
       />
 
-      <div className="rounded-lg border border-border/50 bg-card/50">
+      <div className="border border-border/50 bg-card/50">
         <Table>
           <TableHeader>
             <TableRow className="border-border/50 hover:bg-transparent">
