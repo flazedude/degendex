@@ -113,3 +113,40 @@ export function getDexScreenerChartEmbed(pairAddress: string): string {
 export function getDexScreenerChartUrl(pairAddress: string): string {
   return `https://dexscreener.com/solana/${pairAddress}`;
 }
+
+/**
+ * Fetch top Solana token pairs by various search terms.
+ * DexScreener doesn't have a dedicated "top tokens" endpoint,
+ * so we search for popular base tokens and merge results.
+ */
+export async function getTopSolanaPairs(): Promise<DexScreenerPair[]> {
+  const queries = ["SOL", "USDC", "BONK", "WIF", "JUP", "RAY", "PYTH", "JTO", "RNDR", "HNT"];
+  const results = await Promise.allSettled(
+    queries.map((q) =>
+      fetch(`${DEXSCREENER_API}/latest/dex/search?q=${q}`)
+        .then((r) => r.json())
+        .then((d) =>
+          ((d.pairs || []) as DexScreenerPair[]).filter(
+            (p) => p.chainId === "solana" && p.priceUsd && p.volume?.h24 > 0
+          )
+        )
+    )
+  );
+
+  const allPairs: DexScreenerPair[] = [];
+  const seen = new Set<string>();
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      for (const pair of result.value) {
+        const key = pair.baseToken.address;
+        if (!seen.has(key)) {
+          seen.add(key);
+          allPairs.push(pair);
+        }
+      }
+    }
+  }
+
+  return allPairs;
+}

@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type SortOption = "v24hUSD" | "mc" | "v24hChangePercent";
+type SortOption = "volume" | "liquidity" | "priceChange";
 
 interface TokenFiltersProps {
   sortBy: SortOption;
@@ -11,14 +11,14 @@ interface TokenFiltersProps {
 }
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
-  { label: "Volume", value: "v24hUSD" },
-  { label: "Market Cap", value: "mc" },
-  { label: "Trending", value: "v24hChangePercent" },
+  { label: "Volume", value: "volume" },
+  { label: "Liquidity", value: "liquidity" },
+  { label: "Trending", value: "priceChange" },
 ];
 
 export function TokenFilters({ sortBy, onSortChange }: TokenFiltersProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       {SORT_OPTIONS.map((opt) => (
         <Button
           key={opt.value}
@@ -26,7 +26,7 @@ export function TokenFilters({ sortBy, onSortChange }: TokenFiltersProps) {
           size="sm"
           onClick={() => onSortChange(opt.value)}
           className={cn(
-            "text-xs",
+            "text-xs h-7 px-2",
             sortBy === opt.value &&
               "border-primary bg-primary/10 text-primary"
           )}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { ArrowUpRight, ArrowDownRight, ExternalLink } from "lucide-react";
 import {
   Table,
@@ -15,138 +14,145 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTokenList } from "@/hooks/useTokenList";
 import { TokenFilters } from "./TokenFilters";
-import { formatNumber, formatUSD } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { getDexScreenerChartUrl } from "@/lib/api/dexscreener";
 
 export function TokenTable() {
-  const [sortBy, setSortBy] = useState<"v24hUSD" | "mc" | "v24hChangePercent">("v24hUSD");
-  const [page, setPage] = useState(0);
-  const limit = 20;
+  const [sortBy, setSortBy] = useState<"volume" | "liquidity" | "priceChange">("volume");
 
-  const { data, isLoading, isError } = useTokenList(sortBy, "desc", page * limit, limit);
-  const tokens = data?.tokens || [];
+  const { data, isLoading, isError } = useTokenList(sortBy, "desc");
+  const pairs = data?.pairs || [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <TokenFilters sortBy={sortBy} onSortChange={(s) => { setSortBy(s); setPage(0); }} />
-        <p className="text-xs text-muted-foreground">
-          {data?.total ? `${data.total.toLocaleString()} tokens` : ""}
+        <TokenFilters sortBy={sortBy} onSortChange={setSortBy} />
+        <p className="text-[11px] text-muted-foreground">
+          {pairs.length > 0 ? `${pairs.length} pairs` : ""}
         </p>
       </div>
 
-      <div className="rounded-lg border border-border/50 bg-card/50">
+      <div className="border border-border/50 bg-card/50">
         <Table>
           <TableHeader>
             <TableRow className="border-border/50 hover:bg-transparent">
-              <TableHead className="w-12 text-muted-foreground">#</TableHead>
+              <TableHead className="w-10 text-muted-foreground">#</TableHead>
               <TableHead className="text-muted-foreground">Token</TableHead>
               <TableHead className="text-right text-muted-foreground">Price</TableHead>
               <TableHead className="text-right text-muted-foreground">24h %</TableHead>
-              <TableHead className="text-right text-muted-foreground hidden sm:table-cell">Volume 24h</TableHead>
-              <TableHead className="text-right text-muted-foreground hidden md:table-cell">Market Cap</TableHead>
+              <TableHead className="text-right text-muted-foreground hidden sm:table-cell">Vol 24h</TableHead>
+              <TableHead className="text-right text-muted-foreground hidden md:table-cell">MCap</TableHead>
               <TableHead className="text-right text-muted-foreground hidden lg:table-cell">Liquidity</TableHead>
-              <TableHead className="w-20" />
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading
               ? Array.from({ length: 10 }).map((_, i) => (
                   <TableRow key={i} className="border-border/30">
-                    <TableCell><Skeleton className="h-4 w-6" /></TableCell>
-                    <TableCell><div className="flex items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><Skeleton className="h-4 w-24" /></div></TableCell>
-                    <TableCell><Skeleton className="ml-auto h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-5" /></TableCell>
+                    <TableCell><div className="flex items-center gap-2"><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-4 w-20" /></div></TableCell>
                     <TableCell><Skeleton className="ml-auto h-4 w-14" /></TableCell>
-                    <TableCell className="hidden sm:table-cell"><Skeleton className="ml-auto h-4 w-16" /></TableCell>
-                    <TableCell className="hidden md:table-cell"><Skeleton className="ml-auto h-4 w-16" /></TableCell>
-                    <TableCell className="hidden lg:table-cell"><Skeleton className="ml-auto h-4 w-16" /></TableCell>
-                    <TableCell><Skeleton className="ml-auto h-8 w-14" /></TableCell>
+                    <TableCell><Skeleton className="ml-auto h-4 w-12" /></TableCell>
+                    <TableCell className="hidden sm:table-cell"><Skeleton className="ml-auto h-4 w-14" /></TableCell>
+                    <TableCell className="hidden md:table-cell"><Skeleton className="ml-auto h-4 w-14" /></TableCell>
+                    <TableCell className="hidden lg:table-cell"><Skeleton className="ml-auto h-4 w-14" /></TableCell>
+                    <TableCell><Skeleton className="ml-auto h-6 w-6" /></TableCell>
                   </TableRow>
                 ))
-              : tokens.map((token, i) => {
-                  const isPositive = token.priceChange24hPercent >= 0;
+              : pairs.map((pair, i) => {
+                  const priceChange = pair.priceChange?.h24 ?? 0;
+                  const isPositive = priceChange >= 0;
+                  const price = pair.priceUsd ? parseFloat(pair.priceUsd) : 0;
                   return (
                     <TableRow
-                      key={token.address}
-                      className="border-border/30 hover:bg-muted/30 cursor-pointer transition-colors"
+                      key={pair.pairAddress}
+                      className="border-border/30 hover:bg-muted/30 transition-colors"
                     >
-                      <TableCell className="text-muted-foreground text-sm">
-                        {page * limit + i + 1}
+                      <TableCell className="text-muted-foreground text-xs">
+                        {i + 1}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-3">
-                          {token.logoURI ? (
+                        <div className="flex items-center gap-2">
+                          {pair.info?.imageUrl ? (
                             <img
-                              src={token.logoURI}
-                              alt={token.symbol}
-                              className="h-8 w-8 rounded-full"
+                              src={pair.info.imageUrl}
+                              alt={pair.baseToken.symbol}
+                              className="h-7 w-7 rounded-full"
                             />
                           ) : (
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-bold">
-                              {token.symbol?.[0] || "?"}
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                              {pair.baseToken.symbol?.[0] || "?"}
                             </div>
                           )}
                           <div>
-                            <p className="font-medium text-sm">{token.symbol}</p>
-                            <p className="text-xs text-muted-foreground truncate max-w-[120px]">
-                              {token.name}
+                            <p className="font-medium text-sm">{pair.baseToken.symbol}</p>
+                            <p className="text-[11px] text-muted-foreground truncate max-w-[100px]">
+                              {pair.baseToken.name}
                             </p>
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
-                        {token.price < 0.01
-                          ? `$${token.price.toFixed(8)}`
-                          : formatUSD(token.price)}
+                        {price < 0.0001
+                          ? `$${price.toExponential(2)}`
+                          : price < 1
+                          ? `$${price.toFixed(6)}`
+                          : `$${price.toFixed(2)}`}
                       </TableCell>
                       <TableCell className="text-right">
                         <span
                           className={cn(
-                            "inline-flex items-center gap-0.5 text-sm font-medium",
+                            "inline-flex items-center gap-0.5 text-xs font-medium",
                             isPositive ? "text-primary" : "text-destructive"
                           )}
                         >
                           {isPositive ? (
-                            <ArrowUpRight className="h-3.5 w-3.5" />
+                            <ArrowUpRight className="h-3 w-3" />
                           ) : (
-                            <ArrowDownRight className="h-3.5 w-3.5" />
+                            <ArrowDownRight className="h-3 w-3" />
                           )}
-                          {Math.abs(token.priceChange24hPercent).toFixed(2)}%
+                          {Math.abs(priceChange).toFixed(2)}%
                         </span>
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground hidden sm:table-cell">
-                        ${formatNumber(token.volume24hUSD)}
+                        ${formatNumber(pair.volume?.h24 ?? 0)}
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground hidden md:table-cell">
-                        ${formatNumber(token.marketCap)}
+                        {pair.marketCap ? `$${formatNumber(pair.marketCap)}` : "—"}
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground hidden lg:table-cell">
-                        ${formatNumber(token.liquidity)}
+                        ${formatNumber(pair.liquidity?.usd ?? 0)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/charts?token=${token.address}`}>
+                        <a
+                          href={getDexScreenerChartUrl(pair.pairAddress)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-xs text-muted-foreground hover:text-primary"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
-                        </Link>
+                        </a>
                       </TableCell>
                     </TableRow>
                   );
                 })}
             {isError && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
-                  Failed to load tokens. Check your Birdeye API key in .env.local
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground text-sm">
+                  Failed to load tokens from DexScreener.
                 </TableCell>
               </TableRow>
             )}
-            {!isLoading && !isError && tokens.length === 0 && (
+            {!isLoading && !isError && pairs.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground text-sm">
                   No tokens found
                 </TableCell>
               </TableRow>
@@ -154,31 +160,6 @@ export function TokenTable() {
           </TableBody>
         </Table>
       </div>
-
-      {/* Pagination */}
-      {tokens.length > 0 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page + 1}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={tokens.length < limit}
-          >
-            Next
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

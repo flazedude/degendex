@@ -1,32 +1,40 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { BirdeyeTokenOverview } from "@/lib/api/birdeye";
+import type { DexScreenerPair } from "@/lib/api/dexscreener";
 
-interface TokenListResponse {
-  tokens: BirdeyeTokenOverview[];
-  total: number;
+interface ExploreResponse {
+  pairs: DexScreenerPair[];
 }
 
 export function useTokenList(
-  sortBy: "v24hUSD" | "mc" | "v24hChangePercent" = "v24hUSD",
-  sortType: "asc" | "desc" = "desc",
-  offset = 0,
-  limit = 20
+  sortBy: "volume" | "liquidity" | "priceChange" = "volume",
+  sortType: "asc" | "desc" = "desc"
 ) {
-  return useQuery<TokenListResponse>({
-    queryKey: ["tokenList", sortBy, sortType, offset, limit],
+  return useQuery<ExploreResponse>({
+    queryKey: ["explore-tokens"],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        sortBy,
-        sortType,
-        offset: offset.toString(),
-        limit: limit.toString(),
-      });
-      const res = await fetch(`/api/tokens?${params}`);
+      const res = await fetch("/api/explore");
       if (!res.ok) throw new Error("Failed to fetch tokens");
       return res.json();
     },
     staleTime: 60_000,
+    select: (data) => {
+      const sorted = [...data.pairs].sort((a, b) => {
+        let aVal = 0, bVal = 0;
+        if (sortBy === "volume") {
+          aVal = a.volume?.h24 ?? 0;
+          bVal = b.volume?.h24 ?? 0;
+        } else if (sortBy === "liquidity") {
+          aVal = a.liquidity?.usd ?? 0;
+          bVal = b.liquidity?.usd ?? 0;
+        } else if (sortBy === "priceChange") {
+          aVal = a.priceChange?.h24 ?? 0;
+          bVal = b.priceChange?.h24 ?? 0;
+        }
+        return sortType === "desc" ? bVal - aVal : aVal - bVal;
+      });
+      return { pairs: sorted };
+    },
   });
 }
