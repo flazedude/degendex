@@ -4,15 +4,15 @@ import { useEffect, useRef, memo } from "react";
 
 interface TradingViewWidgetProps {
   symbol: string;
+  hideTopToolbar?: boolean;
 }
 
-function TradingViewWidgetInner({ symbol }: TradingViewWidgetProps) {
+function TradingViewWidgetInner({ symbol, hideTopToolbar = false }: TradingViewWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Clear previous widget
     containerRef.current.innerHTML = "";
 
     const script = document.createElement("script");
@@ -28,24 +28,24 @@ function TradingViewWidgetInner({ symbol }: TradingViewWidgetProps) {
       style: "1",
       locale: "en",
       backgroundColor: "rgba(10, 10, 15, 1)",
-      gridColor: "rgba(39, 39, 58, 0.5)",
-      hide_top_toolbar: false,
+      gridColor: "rgba(39, 39, 58, 0.3)",
+      hide_top_toolbar: hideTopToolbar,
       hide_legend: false,
       allow_symbol_change: true,
-      save_image: true,
+      save_image: false,
       calendar: false,
       hide_volume: false,
       support_host: "https://www.tradingview.com",
-      withdateranges: true,
-      details: true,
-      hotlist: true,
+      withdateranges: false,
+      details: false,
+      hotlist: false,
     });
 
     containerRef.current.appendChild(script);
-  }, [symbol]);
+  }, [symbol, hideTopToolbar]);
 
   return (
-    <div className="tradingview-widget-container h-[600px] w-full rounded-lg overflow-hidden border border-border/50">
+    <div className="tradingview-widget-container h-full w-full overflow-hidden">
       <div ref={containerRef} className="h-full w-full" />
     </div>
   );

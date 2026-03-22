@@ -4,7 +4,7 @@ import { Toaster } from "sonner";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { Navbar } from "@/components/layout/Navbar";
-import { Footer } from "@/components/layout/Footer";
+import { ConditionalFooter } from "@/components/layout/ConditionalFooter";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -43,7 +43,7 @@ export default function RootLayout({
           <SolanaProvider>
             <Navbar />
             <main className="flex flex-1 flex-col">{children}</main>
-            <Footer />
+            <ConditionalFooter />
             <Toaster
               theme="dark"
               position="bottom-right"

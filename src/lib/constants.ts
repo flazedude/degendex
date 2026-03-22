@@ -24,11 +24,10 @@ export const POPULAR_TOKENS = [
 ];
 
 export const NAV_LINKS = [
+  { label: "Trade", href: "/trade" },
   { label: "Swap", href: "/swap" },
   { label: "Memes", href: "/memes" },
-  { label: "Charts", href: "/charts" },
   { label: "Explore", href: "/explore" },
   { label: "Liquidity", href: "/liquidity" },
-  { label: "Order Book", href: "/orderbook" },
   { label: "Portfolio", href: "/portfolio" },
 ];

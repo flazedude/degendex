@@ -11,24 +11,28 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 export function Navbar() {
   const pathname = usePathname();
+  const isTerminal = pathname === "/trade";
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-      <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
+      <nav className={cn(
+        "flex items-center justify-between px-4",
+        isTerminal ? "h-10 max-w-full" : "h-14 mx-auto max-w-7xl"
+      )}>
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2">
-          <span className="text-2xl font-bold text-gradient">DEGN</span>
-          <span className="text-sm font-medium text-muted-foreground">DEX</span>
+        <Link href="/" className="flex items-center gap-1.5">
+          <span className={cn("font-bold text-gradient", isTerminal ? "text-lg" : "text-2xl")}>DEGN</span>
+          <span className="text-xs font-medium text-muted-foreground">DEX</span>
         </Link>
 
         {/* Desktop Nav */}
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-0.5 md:flex">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               className={cn(
-                "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "px-2.5 py-1.5 text-xs font-medium transition-colors",
                 pathname === link.href
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:text-foreground"
@@ -40,24 +44,24 @@ export function Navbar() {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <WalletButton />
 
           {/* Mobile menu */}
           <Sheet>
             <SheetTrigger asChild className="md:hidden">
-              <Button variant="ghost" size="icon">
-                <Menu className="h-5 w-5" />
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Menu className="h-4 w-4" />
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-64 bg-card">
-              <div className="mt-8 flex flex-col gap-2">
+              <div className="mt-8 flex flex-col gap-1">
                 {NAV_LINKS.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
                     className={cn(
-                      "rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                      "px-4 py-2.5 text-sm font-medium transition-colors",
                       pathname === link.href
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:text-foreground"
