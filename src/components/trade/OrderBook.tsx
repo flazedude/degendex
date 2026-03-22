@@ -16,7 +16,7 @@ interface OrderBookProps {
 
 // Generate mock order book data
 function generateOrders(basePrice: number, side: "ask" | "bid", count: number) {
-  const orders = [];
+  const orders: { price: number; size: number; total: number }[] = [];
   for (let i = 0; i < count; i++) {
     const offset = (i + 1) * (basePrice * 0.001 * (0.5 + Math.random()));
     const price = side === "ask" ? basePrice + offset : basePrice - offset;
