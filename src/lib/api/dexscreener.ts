@@ -84,23 +84,44 @@ export async function getLatestBoostedTokens(): Promise<DexScreenerTokenProfile[
 
 /**
  * Fetch pump.fun memecoins via DexScreener search.
- * Searches for recent pump.fun tokens on Solana.
+ * Searches multiple queries to get a larger set of meme tokens.
  */
 export async function getPumpFunPairs(): Promise<DexScreenerPair[]> {
-  // Use DexScreener search to find pump.fun tokens on Solana
-  const res = await fetch(`${DEXSCREENER_API}/latest/dex/search?q=pump.fun`);
-  if (!res.ok) throw new Error(`DexScreener search error: ${res.statusText}`);
-  const data = await res.json();
-  const pairs: DexScreenerPair[] = data.pairs || [];
+  const queries = ["pump.fun", "meme solana", "degen solana", "sol meme", "bonk", "wif", "popcat"];
 
-  // Filter to Solana pairs from pump.fun or raydium (graduated pump.fun tokens)
-  return pairs
-    .filter(
-      (p) =>
-        p.chainId === "solana" &&
-        (p.dexId === "pumpfun" || p.dexId === "raydium")
+  const results = await Promise.allSettled(
+    queries.map((q) =>
+      fetch(`${DEXSCREENER_API}/latest/dex/search?q=${encodeURIComponent(q)}`)
+        .then((r) => r.json())
+        .then((d) =>
+          ((d.pairs || []) as DexScreenerPair[]).filter(
+            (p: DexScreenerPair) =>
+              p.chainId === "solana" &&
+              p.priceUsd &&
+              p.volume?.h24 > 0
+          )
+        )
     )
-    .slice(0, 30);
+  );
+
+  const allPairs: DexScreenerPair[] = [];
+  const seen = new Set<string>();
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      for (const pair of result.value) {
+        if (!seen.has(pair.pairAddress)) {
+          seen.add(pair.pairAddress);
+          allPairs.push(pair);
+        }
+      }
+    }
+  }
+
+  // Sort by 24h volume descending, return up to 200
+  return allPairs
+    .sort((a, b) => (b.volume?.h24 ?? 0) - (a.volume?.h24 ?? 0))
+    .slice(0, 200);
 }
 
 /**

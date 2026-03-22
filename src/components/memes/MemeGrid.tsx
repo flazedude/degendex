@@ -34,12 +34,17 @@ function sortPairs(pairs: DexScreenerPair[], mode: SortMode): DexScreenerPair[] 
   }
 }
 
+const PAGE_SIZE = 50;
+
 export function MemeGrid() {
   const { data, isLoading, isError, dataUpdatedAt, refetch, isFetching } = useMemePairs();
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [selectedPair, setSelectedPair] = useState<DexScreenerPair | null>(null);
+  const [page, setPage] = useState(0);
 
-  const pairs = data?.pairs ? sortPairs(data.pairs, sortMode) : [];
+  const allPairs = data?.pairs ? sortPairs(data.pairs, sortMode) : [];
+  const totalPages = Math.ceil(allPairs.length / PAGE_SIZE);
+  const pairs = allPairs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString()
     : null;
@@ -60,7 +65,7 @@ export function MemeGrid() {
               key={mode}
               variant="outline"
               size="sm"
-              onClick={() => setSortMode(mode)}
+              onClick={() => { setSortMode(mode); setPage(0); }}
               className={cn(
                 "text-xs gap-1 h-7 px-2",
                 sortMode === mode &&
@@ -95,7 +100,7 @@ export function MemeGrid() {
       {/* Grid */}
       {isLoading ? (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="border border-border/50 bg-card/80 p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <Skeleton className="h-8 w-8 rounded-full" />
@@ -140,6 +145,33 @@ export function MemeGrid() {
               onClick={() => setSelectedPair(pair)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="h-7 text-xs"
+          >
+            Prev
+          </Button>
+          <span className="text-xs text-muted-foreground font-mono">
+            {page + 1} / {totalPages} ({allPairs.length} tokens)
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            className="h-7 text-xs"
+          >
+            Next
+          </Button>
         </div>
       )}
 
