@@ -7,12 +7,7 @@ import { cn } from "@/lib/utils";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 
-interface Market {
-  label: string;
-  symbol: string;
-  base: string;
-  quote: string;
-}
+import type { Market } from "@/app/trade/page";
 
 interface TradePanelProps {
   market: Market;

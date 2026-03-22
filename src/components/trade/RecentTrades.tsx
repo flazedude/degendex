@@ -2,12 +2,7 @@
 
 import { cn } from "@/lib/utils";
 
-interface Market {
-  label: string;
-  symbol: string;
-  base: string;
-  quote: string;
-}
+import type { Market } from "@/app/trade/page";
 
 interface RecentTradesProps {
   market: Market;
