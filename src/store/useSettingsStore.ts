@@ -1,22 +1,42 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
+import {
+  normalizeSlippageSetting,
+  type SlippageSetting,
+} from "@/lib/jupiter/params";
+
+export type { SlippageSetting };
 
 interface SettingsState {
-  slippageBps: number;
-  priorityFee: "none" | "low" | "medium" | "high";
-  setSlippageBps: (bps: number) => void;
-  setPriorityFee: (fee: "none" | "low" | "medium" | "high") => void;
+  /** "auto" = Jupiter real-time slippage (RTSE), or a fixed value in bps. */
+  slippage: SlippageSetting;
+  setSlippage: (slippage: SlippageSetting) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      slippageBps: DEFAULT_SLIPPAGE_BPS,
-      priorityFee: "medium",
-      setSlippageBps: (bps) => set({ slippageBps: bps }),
-      setPriorityFee: (fee) => set({ priorityFee: fee }),
+      slippage: "auto",
+      setSlippage: (slippage) =>
+        set({ slippage: normalizeSlippageSetting(slippage) }),
     }),
-    { name: "degn-settings" }
+    {
+      name: "degn-settings",
+      version: 1,
+      // Rehydrated on mount by the swap UI, so SSR and the first client render
+      // agree (avoids a hydration mismatch on the slippage label).
+      skipHydration: true,
+      partialize: (state) => ({ slippage: state.slippage }),
+      // v0 stored { slippageBps: 50, priorityFee }. The 50 bps default was never
+      // a deliberate user choice, so everyone moves to Auto (RTSE).
+      migrate: () => ({ slippage: "auto" as SlippageSetting }),
+      // Never trust localStorage contents.
+      merge: (persisted, current) => ({
+        ...current,
+        slippage: normalizeSlippageSetting(
+          (persisted as { slippage?: unknown } | null)?.slippage
+        ),
+      }),
+    }
   )
 );

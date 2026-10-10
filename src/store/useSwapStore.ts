@@ -1,48 +1,50 @@
 import { create } from "zustand";
-import { SOL_MINT, USDC_MINT, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
+import { POPULAR_TOKENS } from "@/lib/constants";
+import type { TokenInfo } from "@/lib/tokens/types";
 
-export interface TokenInfo {
-  symbol: string;
-  mint: string;
-  decimals: number;
-  logoURI?: string;
-  name?: string;
-}
+export type { TokenInfo };
 
 interface SwapState {
   inputToken: TokenInfo;
   outputToken: TokenInfo;
+  /** Exact decimal string typed by the user (never a float). */
   inputAmount: string;
-  outputAmount: string;
-  slippageBps: number;
-  loading: boolean;
+  /** Selecting the current output token here swaps the two sides. */
   setInputToken: (token: TokenInfo) => void;
+  /** Selecting the current input token here swaps the two sides. */
   setOutputToken: (token: TokenInfo) => void;
+  /** Sets both sides at once (deep links). Ignored if they are the same mint. */
+  setTokens: (input: TokenInfo, output: TokenInfo) => void;
   setInputAmount: (amount: string) => void;
-  setOutputAmount: (amount: string) => void;
-  setSlippageBps: (bps: number) => void;
-  setLoading: (loading: boolean) => void;
-  switchTokens: () => void;
+  /** Flips sides; optionally seeds the new input with the previous quote. */
+  switchTokens: (nextInputAmount?: string) => void;
 }
 
 export const useSwapStore = create<SwapState>((set) => ({
-  inputToken: { symbol: "SOL", mint: SOL_MINT, decimals: 9 },
-  outputToken: { symbol: "USDC", mint: USDC_MINT, decimals: 6 },
+  inputToken: POPULAR_TOKENS[0],
+  outputToken: POPULAR_TOKENS[1],
   inputAmount: "",
-  outputAmount: "",
-  slippageBps: DEFAULT_SLIPPAGE_BPS,
-  loading: false,
-  setInputToken: (token) => set({ inputToken: token }),
-  setOutputToken: (token) => set({ outputToken: token }),
+  setInputToken: (token) =>
+    set((s) =>
+      token.mint === s.outputToken.mint
+        ? { inputToken: token, outputToken: s.inputToken }
+        : { inputToken: token }
+    ),
+  setOutputToken: (token) =>
+    set((s) =>
+      token.mint === s.inputToken.mint
+        ? { outputToken: token, inputToken: s.outputToken }
+        : { outputToken: token }
+    ),
+  setTokens: (input, output) =>
+    set(() =>
+      input.mint === output.mint ? {} : { inputToken: input, outputToken: output }
+    ),
   setInputAmount: (amount) => set({ inputAmount: amount }),
-  setOutputAmount: (amount) => set({ outputAmount: amount }),
-  setSlippageBps: (bps) => set({ slippageBps: bps }),
-  setLoading: (loading) => set({ loading }),
-  switchTokens: () =>
-    set((state) => ({
-      inputToken: state.outputToken,
-      outputToken: state.inputToken,
-      inputAmount: state.outputAmount,
-      outputAmount: state.inputAmount,
+  switchTokens: (nextInputAmount) =>
+    set((s) => ({
+      inputToken: s.outputToken,
+      outputToken: s.inputToken,
+      inputAmount: nextInputAmount ?? s.inputAmount,
     })),
 }));
