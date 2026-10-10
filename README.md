@@ -11,7 +11,7 @@ makers and more), so it inherits their depth and audited contracts.
 
 | Area | Status |
 |---|---|
-| Swap | Live. Jupiter Swap API v2 (`/order` + `/execute`): all routers compete, Jupiter handles slippage (RTSE), priority fees and transaction landing. Token search by name, symbol or mint, token safety warnings, balances, price-impact guard. |
+| Swap | Live. Jupiter Swap API v2 (`/order` + `/execute`): all routers compete, Jupiter handles slippage (RTSE), priority fees and transaction landing. Token search by name, symbol or mint, token safety warnings, balances, price-impact guard, deep links (`/swap?inputMint=...&outputMint=...`). |
 | Memes | Live, read-only. New pump.fun / Raydium pairs from DexScreener, with a one-click link into Swap. |
 | Explore | Live, read-only. Top Solana pairs from DexScreener. |
 | Liquidity | Pool explorer is live (Raydium API). Deposits open on Raydium; in-app deposits are on the roadmap. |
@@ -31,7 +31,7 @@ pnpm dev                     # http://localhost:3000
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `JUPITER_API_KEY` | server | Free key from [developers.jup.ag/portal](https://developers.jup.ag/portal). Without it, requests are keyless (~0.5 req/s per server IP): fine locally, not in production. |
+| `JUPITER_API_KEY` | server | Key from [developers.jup.ag/portal](https://developers.jup.ag/portal). See [Rate limits](#rate-limits) for which plan you need. |
 | `JUPITER_REFERRAL_ACCOUNT` / `JUPITER_REFERRAL_FEE_BPS` | server | Optional integrator fee (50-255 bps) through the [Jupiter Referral Program](https://referral.jup.ag/). Set both or neither, and create referral token accounts for the fee mints (at least SOL and USDC) or the fee is silently skipped. |
 | `NEXT_PUBLIC_HELIUS_RPC_URL` | browser | Solana RPC for wallet balances. Use a provider key restricted to your domains; the public endpoint rate-limits hard. |
 | `NEXT_PUBLIC_DEGN_MINT` | browser | Optional DEGN token mint, added to the swap token list. |
@@ -48,6 +48,28 @@ pnpm dev                     # http://localhost:3000
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests and build on every
 pull request.
+
+## Rate limits
+
+All quote and token-search traffic goes through the server routes, so every
+visitor shares **one** Jupiter rate limit (it applies per organisation, not per
+key). `/swap/v2/execute` has its own, much larger bucket.
+
+| Jupiter plan | Main limit | Good for |
+|---|---|---|
+| Keyless (no key) | 0.5 req/s | Local development |
+| Free key | 1 req/s (60/min) | A few concurrent users |
+| Developer and up | 10+ req/s | Real traffic |
+
+An idle swap tab requests a fresh quote about every 20 seconds, plus debounced
+requests while typing. On a 429 the app keeps the last quote on screen and retries
+once when Jupiter says a slot frees up.
+
+Also add a per-IP rate-limit rule for `/api/jupiter/order` and
+`/api/jupiter/tokens` in the Vercel Firewall (for example 30 requests per minute
+per IP), so a single client can't use up the shared quota. Leave
+`/api/jupiter/execute` out of it: throttling a signed transaction only hurts the
+user.
 
 ## How a swap works
 
@@ -76,12 +98,11 @@ src/
 
 ## Roadmap
 
-1. **Swap polish**: platform fee live, recent-swap history, quote countdown,
-   shareable swap links.
+1. **Swap polish**: referral fee live, recent-swap history, quote countdown.
 2. **Real trade terminal**: limit orders and DCA (Jupiter Trigger API), on-chain
    OHLCV charts, drop non-Solana markets; perps (Drift or Jupiter Perps) later.
 3. **Liquidity and portfolio**: in-app Raydium deposits/withdrawals (CPMM and CLMM
    ranges) with the Raydium SDK v2; portfolio from wallet token accounts, prices and
    transaction history.
-4. **Degen features**: one-click buys from Memes, new-pair alerts, safety scores,
-   PnL tracking, mobile wallet support.
+4. **Degen features**: quick-buy presets on Memes, new-pair alerts, safety
+   scores, PnL tracking, mobile wallet support.
