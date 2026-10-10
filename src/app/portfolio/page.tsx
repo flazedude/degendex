@@ -9,15 +9,17 @@ export default function PortfolioPage() {
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground">
-            Track your positions, balances, and transaction history. Coming in
-            Phase 5 with Helius DAS integration.
+            Portfolio tracking is coming soon. Your balances and positions are
+            not shown here yet.
           </p>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-dashed border-border py-16 text-center">
-              <p className="text-sm text-muted-foreground">Balance Overview</p>
+            <div className="border border-dashed border-border py-16 text-center">
+              <p className="text-sm text-muted-foreground">Balances</p>
+              <p className="mt-1 text-[11px] text-muted-foreground/70">Coming soon</p>
             </div>
-            <div className="rounded-lg border border-dashed border-border py-16 text-center">
+            <div className="border border-dashed border-border py-16 text-center">
               <p className="text-sm text-muted-foreground">Positions</p>
+              <p className="mt-1 text-[11px] text-muted-foreground/70">Coming soon</p>
             </div>
           </div>
         </CardContent>

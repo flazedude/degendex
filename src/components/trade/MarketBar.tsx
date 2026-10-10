@@ -38,6 +38,10 @@ export function MarketBar({ market }: MarketBarProps) {
           {market.symbol.split(":")[0]}
         </p>
       </div>
+
+      <p className="ml-auto shrink-0 text-[10px] text-muted-foreground" title="Chart prices come from TradingView's centralized-exchange feeds, not on-chain data.">
+        Chart: TradingView (CEX price)
+      </p>
     </div>
   );
 }
