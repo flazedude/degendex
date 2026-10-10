@@ -7,11 +7,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemePairs } from "@/hooks/useMemePairs";
 import { MemeCard } from "./MemeCard";
+import { pairSwapHref } from "@/components/explore/pairSwapHref";
 import { cn, formatNumber } from "@/lib/utils";
 import { getDexScreenerChartEmbed, getDexScreenerChartUrl, type DexScreenerPair } from "@/lib/api/dexscreener";
 import Link from "next/link";
@@ -45,6 +45,7 @@ export function MemeGrid() {
   const allPairs = data?.pairs ? sortPairs(data.pairs, sortMode) : [];
   const totalPages = Math.ceil(allPairs.length / PAGE_SIZE);
   const pairs = allPairs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const selectedSwapHref = selectedPair ? pairSwapHref(selectedPair) : null;
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString()
     : null;
@@ -202,21 +203,21 @@ export function MemeGrid() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <Link href="/swap">
-                      <Button size="sm" className="h-6 px-2 text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 glow-green-sm">
-                        Swap
+                    {selectedSwapHref && (
+                      <Button asChild size="sm" className="h-6 px-2 text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 glow-green-sm">
+                        <Link href={selectedSwapHref}>Swap</Link>
                       </Button>
-                    </Link>
-                    <a
-                      href={getDexScreenerChartUrl(selectedPair.pairAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Button variant="outline" size="sm" className="h-6 px-2 text-[11px] gap-1">
+                    )}
+                    <Button asChild variant="outline" size="sm" className="h-6 px-2 text-[11px] gap-1">
+                      <a
+                        href={getDexScreenerChartUrl(selectedPair.pairAddress)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         DexScreener
                         <ExternalLink className="h-3 w-3" />
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   </div>
                 </div>
 

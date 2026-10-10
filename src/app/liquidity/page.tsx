@@ -25,7 +25,7 @@ export default function LiquidityPage() {
           <span className="text-gradient">Liquidity</span> Pools
         </h1>
         <p className="text-xs text-muted-foreground">
-          Provide liquidity to Raydium pools and earn trading fees.
+          Browse Raydium pools by TVL, volume, fees and APR. Deposits open on Raydium.
         </p>
       </div>
 

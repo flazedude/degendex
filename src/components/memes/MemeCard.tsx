@@ -1,11 +1,13 @@
 "use client";
 
-import { ArrowUpRight, ArrowDownRight, Clock, Droplets } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, Clock, Droplets } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatNumber } from "@/lib/utils";
 import type { DexScreenerPair } from "@/lib/api/dexscreener";
 import { formatDistanceToNow } from "date-fns";
+import { pairSwapHref } from "@/components/explore/pairSwapHref";
 
 interface MemeCardProps {
   pair: DexScreenerPair;
@@ -20,6 +22,7 @@ export function MemeCard({ pair, onClick }: MemeCardProps) {
   const age = pair.pairCreatedAt
     ? formatDistanceToNow(new Date(pair.pairCreatedAt), { addSuffix: false })
     : "Unknown";
+  const swapHref = pairSwapHref(pair);
 
   return (
     <Card
@@ -121,6 +124,16 @@ export function MemeCard({ pair, onClick }: MemeCardProps) {
             <Droplets className="h-2.5 w-2.5" />
             ${formatNumber(pair.liquidity?.usd ?? 0)}
           </span>
+          {swapHref && (
+            <Link
+              href={swapHref}
+              onClick={(e) => e.stopPropagation()}
+              className="ml-auto flex items-center gap-1 border border-primary/40 px-1.5 py-px font-medium text-primary transition-colors hover:bg-primary/10"
+            >
+              <ArrowLeftRight className="h-2.5 w-2.5" />
+              Swap
+            </Link>
+          )}
         </div>
       </CardContent>
     </Card>

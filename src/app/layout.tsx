@@ -20,10 +20,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "DEGN DEX | Solana Decentralized Exchange",
   description:
-    "The degen's decentralized exchange on Solana. Swap, provide liquidity, and trade with the speed of light.",
+    "Best-price Solana swaps through Jupiter, meme pair discovery, a Raydium pool explorer and charts.",
   openGraph: {
     title: "DEGN DEX",
-    description: "Decentralized exchange on Solana",
+    description:
+      "Best-price Solana swaps through Jupiter, meme pair discovery, a Raydium pool explorer and charts.",
     type: "website",
   },
 };

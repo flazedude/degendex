@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Droplets, TrendingUp, BarChart3, Percent } from "lucide-react";
+import { Droplets, BarChart3, Percent } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -107,7 +107,7 @@ export function PoolList({ onSelectPool }: PoolListProps) {
                                 : "border-primary/50 text-primary"
                             )}
                           >
-                            {pool.type === "Concentrated" ? "CLMM" : "CPMM"}
+                            {pool.type === "Concentrated" ? "CLMM" : "AMM"}
                           </Badge>
                         </div>
                       </div>

@@ -33,11 +33,3 @@ export function formatTokenAmount(amount: number, decimals = 6): string {
     maximumFractionDigits: decimals,
   });
 }
-
-export function lamportsToSol(lamports: number): number {
-  return lamports / 1_000_000_000;
-}
-
-export function solToLamports(sol: number): number {
-  return Math.floor(sol * 1_000_000_000);
-}
