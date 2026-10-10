@@ -6,6 +6,23 @@
  */
 export const EXECUTE_UNKNOWN_STATUS_CODE = -10_000;
 
+/**
+ * Local sentinel: Jupiter rejected the /execute call with a 4xx that carried no
+ * code (e.g. rate limited). Nothing was broadcast, so retrying is safe.
+ */
+export const EXECUTE_REJECTED_CODE = -10_001;
+
+/**
+ * /execute outcomes where the transaction may or may not have landed: our own
+ * sentinel plus Jupiter's "unknown" codes (aggregator -1001, RFQ -2001). These
+ * must never be treated as a definite failure that invites a blind retry.
+ */
+const UNKNOWN_OUTCOME_CODES = new Set([EXECUTE_UNKNOWN_STATUS_CODE, -1001, -2001]);
+
+export function isUnknownExecuteOutcome(code: number | null | undefined): boolean {
+  return typeof code === "number" && UNKNOWN_OUTCOME_CODES.has(code);
+}
+
 const AGGREGATOR_ROUTERS = new Set(["metis", "dflow", "okx"]);
 
 function clip(text: string | null | undefined, max = 90): string | null {
@@ -53,6 +70,8 @@ export function describeExecuteError(
   switch (code) {
     case EXECUTE_UNKNOWN_STATUS_CODE:
       return "Swap status unknown. Check your wallet activity before retrying";
+    case EXECUTE_REJECTED_CODE:
+      return "Jupiter rejected the swap before sending it (nothing was submitted). Please try again";
     case -1:
       return "Quote expired, please try again";
     case -2:

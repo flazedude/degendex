@@ -31,12 +31,81 @@ export function getReferralConfig(): ReferralConfig | null {
 export function jsonResponse(
   body: unknown,
   status = 200,
-  cacheControl = "no-store"
+  cacheControl = "no-store",
+  extraHeaders: Record<string, string> = {}
 ): NextResponse {
   return NextResponse.json(body, {
     status,
-    headers: { "Cache-Control": cacheControl },
+    headers: { ...extraHeaders, "Cache-Control": cacheControl },
   });
+}
+
+const DEFAULT_RETRY_AFTER_S = 2;
+const MAX_RETRY_AFTER_S = 60;
+
+/**
+ * Seconds to wait after a Jupiter 429. `x-ratelimit-reset` is an absolute unix
+ * timestamp in seconds (portal rate-limit docs). Clamped to 1..60, default 2.
+ */
+export function retryAfterSeconds(headers: Headers, nowMs = Date.now()): number {
+  const reset = Number(headers.get("x-ratelimit-reset"));
+  let seconds = Number.NaN;
+  if (headers.get("x-ratelimit-reset") && Number.isFinite(reset) && reset > 0) {
+    seconds = Math.ceil(reset - nowMs / 1000);
+  } else {
+    const ra = Number(headers.get("retry-after"));
+    if (headers.get("retry-after") && Number.isFinite(ra)) seconds = Math.ceil(ra);
+  }
+  if (!Number.isFinite(seconds)) return DEFAULT_RETRY_AFTER_S;
+  return Math.min(MAX_RETRY_AFTER_S, Math.max(1, seconds));
+}
+
+/** Our 429: Retry-After header plus retryAfterMs in the body, so clients back off. */
+export function rateLimitedResponse(upstream: Response): NextResponse {
+  const seconds = retryAfterSeconds(upstream.headers);
+  return jsonResponse(
+    { error: "Rate limited by Jupiter, please retry", retryAfterMs: seconds * 1000 },
+    429,
+    "no-store",
+    { "Retry-After": String(seconds) }
+  );
+}
+
+export class BodyTooLargeError extends Error {
+  constructor() {
+    super("Request body too large");
+    this.name = "BodyTooLargeError";
+  }
+}
+
+/**
+ * Reads a request body as UTF-8 text, aborting once it exceeds `maxBytes`
+ * (covers chunked bodies with no Content-Length). Throws BodyTooLargeError.
+ */
+export async function readTextCapped(req: Request, maxBytes: number): Promise<string> {
+  const declared = req.headers.get("content-length");
+  if (declared !== null && Number(declared) > maxBytes) throw new BodyTooLargeError();
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new BodyTooLargeError();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /** Reads a JSON body without throwing. */

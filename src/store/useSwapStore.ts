@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { POPULAR_TOKENS } from "@/lib/constants";
+import { truncateToDecimals } from "@/lib/amounts";
 import type { TokenInfo } from "@/lib/tokens/types";
 
 export type { TokenInfo };
@@ -24,27 +25,42 @@ export const useSwapStore = create<SwapState>((set) => ({
   inputToken: POPULAR_TOKENS[0],
   outputToken: POPULAR_TOKENS[1],
   inputAmount: "",
+  // Whenever the input token changes, the typed amount is cut to its decimals:
+  // otherwise the field shows more precision than is quoted and cannot be edited.
   setInputToken: (token) =>
-    set((s) =>
-      token.mint === s.outputToken.mint
+    set((s) => ({
+      ...(token.mint === s.outputToken.mint
         ? { inputToken: token, outputToken: s.inputToken }
-        : { inputToken: token }
-    ),
+        : { inputToken: token }),
+      inputAmount: truncateToDecimals(s.inputAmount, token.decimals),
+    })),
   setOutputToken: (token) =>
     set((s) =>
       token.mint === s.inputToken.mint
-        ? { outputToken: token, inputToken: s.outputToken }
+        ? {
+            outputToken: token,
+            inputToken: s.outputToken,
+            inputAmount: truncateToDecimals(s.inputAmount, s.outputToken.decimals),
+          }
         : { outputToken: token }
     ),
   setTokens: (input, output) =>
-    set(() =>
-      input.mint === output.mint ? {} : { inputToken: input, outputToken: output }
+    set((s) =>
+      input.mint === output.mint
+        ? {}
+        : {
+            inputToken: input,
+            outputToken: output,
+            inputAmount: truncateToDecimals(s.inputAmount, input.decimals),
+          }
     ),
   setInputAmount: (amount) => set({ inputAmount: amount }),
   switchTokens: (nextInputAmount) =>
     set((s) => ({
       inputToken: s.outputToken,
       outputToken: s.inputToken,
-      inputAmount: nextInputAmount ?? s.inputAmount,
+      // A seeded amount (previous quote) already has the right decimals.
+      inputAmount:
+        nextInputAmount ?? truncateToDecimals(s.inputAmount, s.outputToken.decimals),
     })),
 }));

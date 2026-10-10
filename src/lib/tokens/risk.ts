@@ -20,7 +20,7 @@ export type RiskInput = Pick<
  * and Jupiter omits those audit fields for them. We special-case these exact
  * mints instead of trusting `isVerified` / "strict" tags, because a verified
  * tag says the token is the "real" one, not that its authorities are safe:
- * a verified token with an active freeze authority deserves the warning.
+ * a verified token with an active authority still gets a (non-danger) warning.
  */
 const TRUSTED_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
 
@@ -43,17 +43,22 @@ export function getTokenWarnings(token: RiskInput | null | undefined): TokenWarn
   } else {
     // Jupiter omits these flags when the authority is still active, so
     // anything other than an explicit `true` is treated as not disabled.
+    // Verified tokens (LSTs, regulated stablecoins, program-minted tokens)
+    // often keep these authorities by design: still shown, but not as danger.
+    const verified = token.isVerified === true;
     if (audit.mintAuthorityDisabled !== true) {
-      out.push({
-        level: "danger",
-        message: "Mint authority active: supply can be inflated",
-      });
+      out.push(
+        verified
+          ? { level: "warning", message: "Issuer/program can mint more supply" }
+          : { level: "danger", message: "Mint authority active: supply can be inflated" }
+      );
     }
     if (audit.freezeAuthorityDisabled !== true) {
-      out.push({
-        level: "danger",
-        message: "Freeze authority active: your tokens can be frozen",
-      });
+      out.push(
+        verified
+          ? { level: "warning", message: "Issuer can freeze token accounts" }
+          : { level: "danger", message: "Freeze authority active: your tokens can be frozen" }
+      );
     }
     if (
       typeof audit.topHoldersPercentage === "number" &&

@@ -3,6 +3,7 @@ import {
   EXECUTE_UNKNOWN_STATUS_CODE,
   describeExecuteError,
   describeOrderError,
+  isUnknownExecuteOutcome,
   isUserRejection,
 } from "./errors";
 
@@ -29,6 +30,10 @@ describe("describeOrderError", () => {
 });
 
 describe("describeExecuteError", () => {
+  it("says a rejected-before-broadcast swap was not submitted", () => {
+    expect(describeExecuteError(-10001)).toMatch(/nothing was submitted/i);
+    expect(isUnknownExecuteOutcome(-10001)).toBe(false);
+  });
   it("maps known codes", () => {
     expect(describeExecuteError(-1)).toMatch(/expired/i);
     expect(describeExecuteError(-2003)).toMatch(/expired/i);
@@ -47,6 +52,19 @@ describe("describeExecuteError", () => {
     expect(describeExecuteError(-42, "Weird")).toBe("Weird");
     expect(describeExecuteError(undefined)).toBe("Swap failed");
     expect(describeExecuteError(-1001, "Slippage tolerance exceeded")).toMatch(/slippage/i);
+  });
+});
+
+describe("isUnknownExecuteOutcome", () => {
+  it("covers the local sentinel and Jupiter's unknown codes only", () => {
+    expect(isUnknownExecuteOutcome(EXECUTE_UNKNOWN_STATUS_CODE)).toBe(true);
+    expect(isUnknownExecuteOutcome(-1001)).toBe(true);
+    expect(isUnknownExecuteOutcome(-2001)).toBe(true);
+    for (const c of [0, -1, -2, -1000, -1004, -2000, -2003, -2004]) {
+      expect(isUnknownExecuteOutcome(c)).toBe(false);
+    }
+    expect(isUnknownExecuteOutcome(undefined)).toBe(false);
+    expect(isUnknownExecuteOutcome(null)).toBe(false);
   });
 });
 

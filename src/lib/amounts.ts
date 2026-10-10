@@ -82,3 +82,44 @@ export function formatUsd(value: number | null | undefined): string | null {
     maximumFractionDigits: 2,
   }).format(value);
 }
+
+/**
+ * Cuts a decimal string to at most `decimals` fraction digits (never rounds
+ * up). Drops a trailing "." and returns "" for empty or zero results.
+ */
+export function truncateToDecimals(amount: string, decimals: number): string {
+  if (typeof amount !== "string" || !validDecimals(decimals)) return "";
+  const s = amount.trim();
+  if (!UI_AMOUNT_RE.test(s)) return "";
+  const [int, frac = ""] = s.split(".");
+  const cut = frac.slice(0, decimals);
+  const out = cut ? `${int || "0"}.${cut}` : int || "0";
+  return /^0*\.?0*$/.test(out) ? "" : out;
+}
+
+const MAX_AMOUNT_INPUT_LENGTH = 40;
+
+/**
+ * Normalises what the user typed or pasted into the amount field. Returns the
+ * new value, or null to reject the edit (the controlled input keeps its value).
+ *
+ * Commas are thousands separators when the text also has a "." or more than
+ * one comma ("1,234.56", "1,000,000"); a single lone comma is a decimal comma
+ * ("1,5" -> "1.5") for comma-decimal keyboards.
+ */
+export function sanitizeAmount(value: string, decimals: number): string | null {
+  let t = value.replace(/\s/g, "");
+  const commas = (t.match(/,/g) ?? []).length;
+  if (commas > 0) {
+    const dot = t.indexOf(".");
+    // "1.234,56" (European grouping) is ambiguous here: reject, don't guess.
+    if (dot >= 0 && t.lastIndexOf(",") > dot) return null;
+    t = dot >= 0 || commas > 1 ? t.replace(/,/g, "") : t.replace(",", ".");
+  }
+  if (t === "") return "";
+  if (!/^\d*\.?\d*$/.test(t) || t.length > MAX_AMOUNT_INPUT_LENGTH) return null;
+  if (t.startsWith(".")) t = `0${t}`;
+  const frac = t.split(".")[1];
+  if (frac !== undefined && (decimals === 0 || frac.length > decimals)) return null;
+  return t.replace(/^0+(?=\d)/, "");
+}

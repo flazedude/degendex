@@ -2,14 +2,20 @@
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { useSwapStore } from "@/store/useSwapStore";
 import { isValidPubkey } from "@/lib/jupiter/params";
 import { fetchTokens } from "@/lib/tokens/map";
+import type { TokenInfo } from "@/lib/tokens/types";
+import { shortenAddress } from "@/lib/utils";
+import { resolveDeepLinkPair } from "./deepLinkPair";
 
 /**
  * Applies /swap?inputMint=<mint>&outputMint=<mint> (either optional) to the
- * swap store. Mints are resolved through Jupiter so decimals are never guessed;
- * invalid or unknown mints are ignored.
+ * swap store. Mints are resolved through Jupiter so decimals are never guessed.
+ * A requested mint that cannot be resolved is reported and its side falls back
+ * to the default pair, so a stale token is never shown in its place. The amount
+ * is cleared either way. No automatic retry (shared Jupiter rate limit).
  */
 export function SwapDeepLink() {
   const searchParams = useSearchParams();
@@ -17,25 +23,42 @@ export function SwapDeepLink() {
   const outputParam = searchParams.get("outputMint")?.trim() ?? "";
 
   useEffect(() => {
-    const inputMint = isValidPubkey(inputParam) ? inputParam : null;
-    let outputMint = isValidPubkey(outputParam) ? outputParam : null;
+    // Malformed mints count as requested-but-unresolved (reported, not fetched).
+    const inputMint = inputParam || null;
+    let outputMint = outputParam || null;
     if (inputMint && outputMint === inputMint) outputMint = null;
     if (!inputMint && !outputMint) return;
+    // Nothing may be quoted or signed for the previous pair while the
+    // requested tokens load: no amount means no quote.
+    useSwapStore.getState().setInputAmount("");
 
     const ctrl = new AbortController();
-    const mints = [inputMint, outputMint].filter((m): m is string => !!m);
+    const mints = [inputMint, outputMint].filter((m): m is string => !!m && isValidPubkey(m));
+    const apply = (found: TokenInfo[]) => {
+      const store = useSwapStore.getState();
+      const pair = resolveDeepLinkPair(
+        { input: store.inputToken, output: store.outputToken },
+        { inputMint, outputMint },
+        found
+      );
+      store.setTokens(pair.input, pair.output);
+      store.setInputAmount("");
+      for (const mint of pair.missing) {
+        toast.error(`Could not load token ${shortenAddress(mint)}; pick it manually`, {
+          id: `deeplink-${mint}`,
+        });
+      }
+    };
+    if (mints.length === 0) {
+      apply([]);
+      return;
+    }
     fetchTokens(mints.join(","), ctrl.signal)
       .then((tokens) => {
-        if (ctrl.signal.aborted) return;
-        const input = inputMint ? tokens.find((t) => t.mint === inputMint) : undefined;
-        const output = outputMint ? tokens.find((t) => t.mint === outputMint) : undefined;
-        const store = useSwapStore.getState();
-        if (input && output) store.setTokens(input, output);
-        else if (input) store.setInputToken(input);
-        else if (output) store.setOutputToken(output);
+        if (!ctrl.signal.aborted) apply(tokens);
       })
       .catch(() => {
-        // Network/API failure: keep the default pair.
+        if (!ctrl.signal.aborted) apply([]);
       });
     return () => ctrl.abort();
   }, [inputParam, outputParam]);

@@ -1,21 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction, type PublicKey } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import { toast } from "sonner";
 import { useSwapStore } from "@/store/useSwapStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import {
+  isSwapBlocked,
+  usePendingSwapStore,
+  type PendingSwap,
+} from "@/store/usePendingSwapStore";
 import { useRefreshBalances } from "@/hooks/useTokenBalance";
 import { formatTokenAmount, fromBaseUnits, toBaseUnits } from "@/lib/amounts";
-import { base64ToBytes, bytesToBase64 } from "@/lib/jupiter/encoding";
+import { base64ToBytes, bytesToBase58, bytesToBase64 } from "@/lib/jupiter/encoding";
 import {
   EXECUTE_UNKNOWN_STATUS_CODE,
   describeExecuteError,
   describeOrderError,
+  isUnknownExecuteOutcome,
   isUserRejection,
 } from "@/lib/jupiter/errors";
+import { checkRequote } from "@/lib/jupiter/requote";
 import {
   getImpactSeverity,
   getPriceImpactPercent,
@@ -29,9 +36,15 @@ const MAX_ORDER_AGE_MS = 15_000;
 /** RFQ orders expiring sooner than this are re-fetched before signing. */
 const RFQ_MIN_REMAINING_MS = 5_000;
 const STALE_AFTER_MS = 25_000;
-/** A re-fetched order may be at most this much worse than the one displayed. */
-const MAX_ADVERSE_REQUOTE_BPS = 50;
 const EXECUTE_CLIENT_TIMEOUT_MS = 75_000;
+/** Backoff after a 429 / network error when the server gives no hint. */
+const DEFAULT_RETRY_AFTER_MS = 2_000;
+const MAX_RETRY_AFTER_MS = 60_000;
+const RETRY_JITTER_MS = 1_000;
+/** How long an unknown /execute outcome blocks new swaps (tx validity window). */
+const PENDING_MAX_MS = 90_000;
+const STATUS_POLL_MS = 2_000;
+const RPC_TIMEOUT_MS = 8_000;
 
 interface QuoteRequest {
   key: string;
@@ -47,6 +60,20 @@ interface QuoteResult {
   order: JupiterOrder | null;
   error: string | null;
   fetchedAt: number;
+  /** A refresh failed transiently; the order shown is kept but is not current. */
+  stale?: boolean;
+}
+
+/** Quote failure carrying the HTTP status and the server's backoff hint. */
+class QuoteError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs?: number
+  ) {
+    super(message);
+    this.name = "QuoteError";
+  }
 }
 
 const DIGITS = /^\d+$/;
@@ -77,7 +104,19 @@ async function fetchOrder(
   });
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok || !body || typeof body !== "object") {
-    throw new Error(errorText(body) ?? `Quote failed (${res.status})`);
+    let retryAfterMs: number | undefined;
+    if (res.status === 429) {
+      const hinted =
+        body && typeof body === "object" && "retryAfterMs" in body
+          ? Number((body as { retryAfterMs: unknown }).retryAfterMs)
+          : Number(res.headers.get("retry-after")) * 1000;
+      retryAfterMs = Number.isFinite(hinted) && hinted > 0 ? hinted : undefined;
+    }
+    throw new QuoteError(
+      errorText(body) ?? `Quote failed (${res.status})`,
+      res.status,
+      retryAfterMs
+    );
   }
   const o = body as JupiterOrder;
   // Never trust a quote that does not describe exactly what was asked for.
@@ -110,6 +149,24 @@ function quoteErrorMessage(err: unknown): string {
   return msg.length > 80 ? `${msg.slice(0, 79)}…` : msg;
 }
 
+/**
+ * Delay before retrying a failed background quote, or null when the failure is
+ * not transient. Only 429s and network errors / timeouts are retried.
+ */
+function transientRetryDelay(err: unknown): number | null {
+  let base: number | null = null;
+  if (err instanceof QuoteError) {
+    if (err.status === 429) base = err.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS;
+  } else if (
+    err instanceof TypeError ||
+    (err instanceof Error && err.name === "TimeoutError")
+  ) {
+    base = DEFAULT_RETRY_AFTER_MS;
+  }
+  if (base === null) return null;
+  return Math.min(base, MAX_RETRY_AFTER_MS) + Math.floor(Math.random() * RETRY_JITTER_MS);
+}
+
 function rfqExpiringSoon(order: JupiterOrder): boolean {
   if (order.expireAt === undefined || order.expireAt === null) return false;
   const seconds = Number(order.expireAt);
@@ -117,11 +174,35 @@ function rfqExpiringSoon(order: JupiterOrder): boolean {
   return seconds * 1000 - Date.now() < RFQ_MIN_REMAINING_MS;
 }
 
-function isMuchWorse(fresh: JupiterOrder, shown: JupiterOrder): boolean {
-  const floor = new BigNumber(shown.outAmount)
-    .times(10_000 - MAX_ADVERSE_REQUOTE_BPS)
-    .div(10_000);
-  return new BigNumber(fresh.outAmount).lt(floor);
+/**
+ * The transaction id, known before submission when the wallet is the fee payer
+ * (signature 0). Gasless orders are fee-paid by someone else: unknown here.
+ */
+function feePayerSignature(tx: VersionedTransaction, wallet: PublicKey): string | undefined {
+  // Only used for status polling: an unexpected wallet return shape must never
+  // block submitting the signed transaction.
+  try {
+    const payer = tx.message.staticAccountKeys[0];
+    const sig = tx.signatures[0];
+    if (!payer?.equals(wallet) || !sig || sig.every((b) => b === 0)) return undefined;
+    return bytesToBase58(sig);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Rejects if `promise` takes longer than `ms` (RPC calls have no timeout). */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("RPC timeout")), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function parseBlockHeight(value: unknown): number | undefined {
+  const n = typeof value === "string" ? Number(value) : value;
+  return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
 /** The wallet must be one of the transaction's required signers. */
@@ -151,6 +232,7 @@ export interface ExecuteSwapOptions {
 
 export function useSwap() {
   const { publicKey, signTransaction } = useWallet();
+  const { connection } = useConnection();
   const inputToken = useSwapStore((s) => s.inputToken);
   const outputToken = useSwapStore((s) => s.outputToken);
   const inputAmount = useSwapStore((s) => s.inputAmount);
@@ -186,26 +268,64 @@ export function useSwap() {
   const [result, setResult] = useState<QuoteResult | null>(null);
   const [inflightKey, setInflightKey] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
+  const pending = usePendingSwapStore((s) => s.pending);
   const [now, setNow] = useState(0);
 
   const seqRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const swappingRef = useRef(false);
+  const mountedRef = useRef(false);
+  /** At most one scheduled quote retry (after a 429 / network error). */
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Bumped to stop this hook's pending-swap watcher. */
+  const pendingSeqRef = useRef(0);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchingRef = useRef(false);
+  const runQuoteRef = useRef<(req: QuoteRequest) => Promise<void>>(async () => {});
   const latestRef = useRef({ request, result, inputToken, outputToken });
   useEffect(() => {
     latestRef.current = { request, result, inputToken, outputToken };
   });
 
   /** Invalidates any in-flight quote so it can no longer set state. */
-  const cancelInflight = useCallback(() => {
+  const abortInflight = useCallback(() => {
     seqRef.current++;
     abortRef.current?.abort();
     abortRef.current = null;
   }, []);
 
+  /** abortInflight + clears the refresh spinner (a cancelled run never does). */
+  const cancelInflight = useCallback(() => {
+    abortInflight();
+    setInflightKey(null);
+  }, [abortInflight]);
+
+  const clearRetry = useCallback(() => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+  }, []);
+
+  /** Replaces any scheduled retry: never more than one timer. */
+  const scheduleRetry = useCallback(
+    (delayMs: number) => {
+      clearRetry();
+      // A request that fails after unmount must not start a retry loop.
+      if (!mountedRef.current) return;
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        // Hidden tabs wait for the visibility / interval refresh instead.
+        if (document.visibilityState !== "visible") return;
+        const latest = latestRef.current.request;
+        if (latest) void runQuoteRef.current(latest);
+      }, delayMs);
+    },
+    [clearRetry]
+  );
+
   const runQuote = useCallback(
     async (req: QuoteRequest) => {
       if (swappingRef.current) return;
+      clearRetry(); // this run supersedes any scheduled retry
       cancelInflight();
       const seq = seqRef.current;
       const ctrl = new AbortController();
@@ -217,12 +337,16 @@ export function useSwap() {
         setResult({ key: req.key, order, error: null, fetchedAt: Date.now() });
       } catch (err) {
         if (seq !== seqRef.current || ctrl.signal.aborted) return;
-        setResult({
-          key: req.key,
-          order: null,
-          error: quoteErrorMessage(err),
-          fetchedAt: Date.now(),
-        });
+        const retryIn = transientRetryDelay(err);
+        const error = quoteErrorMessage(err);
+        // A transient failure keeps the order on screen (marked stale) rather
+        // than replacing a valid quote with an error.
+        setResult((prev) =>
+          retryIn !== null && prev?.key === req.key && prev.order
+            ? { ...prev, stale: true }
+            : { key: req.key, order: null, error, fetchedAt: Date.now() }
+        );
+        if (retryIn !== null) scheduleRetry(retryIn);
       } finally {
         if (seq === seqRef.current) {
           abortRef.current = null;
@@ -230,28 +354,36 @@ export function useSwap() {
         }
       }
     },
-    [cancelInflight]
+    [cancelInflight, clearRetry, scheduleRetry]
   );
+  useEffect(() => {
+    runQuoteRef.current = runQuote;
+  }, [runQuote]);
 
   // Debounced quote whenever tokens / amount / slippage / wallet change.
   useEffect(() => {
+    // No spinner can show without a request, so the refs-only abort suffices.
     if (!request) {
-      cancelInflight();
+      abortInflight();
       return;
     }
+    // Backing off after a 429: the scheduled retry picks up the latest request.
+    if (retryTimerRef.current) return;
     const t = setTimeout(() => void runQuote(request), QUOTE_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [request, runQuote, cancelInflight]);
+  }, [request, runQuote, abortInflight]);
 
-  // Auto-refresh while idle and visible.
+  // Auto-refresh while idle and visible (paused while a retry is scheduled).
   useEffect(() => {
     if (!request || swapping) return;
     const id = setInterval(() => {
       if (document.visibilityState !== "visible" || swappingRef.current) return;
+      if (retryTimerRef.current) return;
       void runQuote(request);
     }, QUOTE_REFRESH_MS);
     const onVisibility = () => {
       if (document.visibilityState !== "visible" || swappingRef.current) return;
+      if (retryTimerRef.current) return;
       const r = latestRef.current.result;
       if (!r || r.key !== request.key || Date.now() - r.fetchedAt > QUOTE_REFRESH_MS) {
         void runQuote(request);
@@ -270,8 +402,131 @@ export function useSwap() {
     return () => clearInterval(id);
   }, []);
 
-  // Abort on unmount.
-  useEffect(() => cancelInflight, [cancelInflight]);
+  /** Stops this hook's watcher; the block itself stays in the store. */
+  const stopPendingWatch = useCallback(() => {
+    pendingSeqRef.current++;
+    watchingRef.current = false;
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+  }, []);
+
+  const dismissPending = useCallback(() => {
+    stopPendingWatch();
+    usePendingSwapStore.getState().clearPending();
+  }, [stopPendingWatch]);
+
+  /**
+   * Blocks new swaps while an unknown-outcome swap may still land. With a known
+   * signature, polls its status until it confirms, fails, or can no longer land
+   * (blockhash expired / 90s); without one (gasless), waits out 90s unless the
+   * user dismisses it after checking their wallet.
+   */
+  const watchPending = useCallback(
+    (p: PendingSwap) => {
+      stopPendingWatch();
+      const seq = pendingSeqRef.current;
+      const alive = () => seq === pendingSeqRef.current;
+      watchingRef.current = true;
+      const deadline = p.until;
+      const finish = () => {
+        if (!alive()) return;
+        stopPendingWatch();
+        usePendingSwapStore.getState().clearPending(p);
+        refreshBalances();
+      };
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          pendingTimerRef.current = setTimeout(resolve, ms);
+        });
+      const action = solscanAction(p.signature);
+      const opts = { id: p.toastId, action, duration: 10_000 };
+
+      const run = async () => {
+        const signature = p.signature;
+        if (!signature) {
+          await wait(Math.max(0, deadline - Date.now()));
+          if (!alive()) return;
+          toast("Previous swap window has passed. Check your wallet activity before swapping again", opts);
+          finish();
+          return;
+        }
+        let expired = false;
+        for (;;) {
+          await wait(STATUS_POLL_MS);
+          if (!alive()) return;
+          let checked = false;
+          let seen = false;
+          try {
+            const { value } = await withTimeout(
+              connection.getSignatureStatuses([signature], { searchTransactionHistory: true }),
+              RPC_TIMEOUT_MS
+            );
+            if (!alive()) return;
+            const st = value[0];
+            checked = true;
+            seen = !!st;
+            if (st?.err) {
+              toast.error("Swap failed on chain", opts);
+              finish();
+              return;
+            }
+            if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") {
+              toast.success(`Swap confirmed: ${p.summary}`, opts);
+              finish();
+              return;
+            }
+          } catch {
+            if (!alive()) return;
+            // RPC hiccup: keep polling until the deadline.
+          }
+          // Only a successful lookup after expiry proves it can no longer land.
+          if (expired && checked && !seen) {
+            toast.error("Swap did not land (transaction expired). You can swap again", opts);
+            finish();
+            return;
+          }
+          if (Date.now() >= deadline) {
+            toast.error("Swap not confirmed after 90s. Check your wallet activity before retrying", opts);
+            finish();
+            return;
+          }
+          if (p.lastValidBlockHeight !== undefined && !expired) {
+            try {
+              const height = await withTimeout(connection.getBlockHeight("confirmed"), RPC_TIMEOUT_MS);
+              if (!alive()) return;
+              // Re-check the status once more before declaring it dropped.
+              if (height > p.lastValidBlockHeight) expired = true;
+            } catch {
+              if (!alive()) return;
+            }
+          }
+        }
+      };
+      void run();
+    },
+    [connection, refreshBalances, stopPendingWatch]
+  );
+
+  // Abort on unmount. The pending-swap block stays in its store (it is keyed to
+  // a wallet), so a reconnect or leaving /swap cannot lift it early.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      cancelInflight();
+      clearRetry();
+      stopPendingWatch();
+    };
+  }, [cancelInflight, clearRetry, stopPendingWatch]);
+
+  // Resume watching a block that outlived an earlier mount of this hook.
+  useEffect(() => {
+    if (watchingRef.current) return;
+    const p = usePendingSwapStore.getState().pending;
+    if (!p) return;
+    if (p.until <= Date.now()) usePendingSwapStore.getState().clearPending(p);
+    else watchPending(p);
+  }, [watchPending]);
 
   const matching = request && result?.key === request.key ? result : null;
   const order = matching?.order ?? null;
@@ -279,7 +534,10 @@ export function useSwap() {
   const isQuoting = !!request && !matching;
   const isRefreshing = !!matching && inflightKey === matching.key;
   const isStale =
-    !!matching && now > 0 && now - matching.fetchedAt > STALE_AFTER_MS;
+    !!matching &&
+    (!!matching.stale || (now > 0 && now - matching.fetchedAt > STALE_AFTER_MS));
+  const activePending =
+    pending && pending.wallet === taker && (now === 0 || pending.until > now) ? pending : null;
 
   const orderError =
     order && order.transaction === ""
@@ -308,6 +566,8 @@ export function useSwap() {
         toast.error("Connect your wallet first");
         return;
       }
+      // An earlier swap from this wallet may still land.
+      if (isSwapBlocked(publicKey.toBase58())) return;
       if (!signTransaction) {
         toast.error("This wallet cannot sign transactions");
         return;
@@ -342,10 +602,15 @@ export function useSwap() {
             );
             return;
           }
-          if (isMuchWorse(fresh, order)) {
-            toast.warning("Price moved. Review the new quote and press Swap again", {
-              id: toastId,
-            });
+          // The user agreed to what was shown, minimum received included.
+          const verdict = checkRequote(fresh, order);
+          if (verdict !== "ok") {
+            toast.warning(
+              verdict === "price-moved"
+                ? "Price moved. Review the new quote and press Swap again"
+                : "Quote changed (minimum received is lower). Review and press Swap again",
+              { id: toastId }
+            );
             return;
           }
           order = fresh;
@@ -365,6 +630,10 @@ export function useSwap() {
 
         toast.loading("Confirm in your wallet...", { id: toastId });
         const signed = await signTransaction(tx);
+        // Known before submission when the wallet pays the fee (not gasless).
+        const localSignature = feePayerSignature(signed, publicKey);
+        // Serialised before the request: a failure here is definite (not sent).
+        const signedTransaction = bytesToBase64(signed.serialize());
 
         toast.loading("Executing swap...", { id: toastId });
         let data: Partial<JupiterExecuteResult> | null = null;
@@ -372,10 +641,7 @@ export function useSwap() {
           const res = await fetch("/api/jupiter/execute", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              signedTransaction: bytesToBase64(signed.serialize()),
-              requestId: order.requestId,
-            }),
+            body: JSON.stringify({ signedTransaction, requestId: order.requestId }),
             signal: AbortSignal.timeout(EXECUTE_CLIENT_TIMEOUT_MS),
           });
           data = (await res.json().catch(() => null)) as Partial<JupiterExecuteResult> | null;
@@ -387,8 +653,10 @@ export function useSwap() {
         }
 
         const signature =
-          typeof data.signature === "string" && data.signature ? data.signature : undefined;
+          (typeof data.signature === "string" && data.signature ? data.signature : undefined) ??
+          localSignature;
 
+        const inUi = formatTokenAmount(fromBaseUnits(order.inAmount, inTok.decimals));
         if (data.status === "Success") {
           const inRaw =
             typeof data.totalInputAmount === "string" && DIGITS.test(data.totalInputAmount)
@@ -398,9 +666,9 @@ export function useSwap() {
             typeof data.totalOutputAmount === "string" && DIGITS.test(data.totalOutputAmount)
               ? data.totalOutputAmount
               : order.outAmount;
-          const inUi = formatTokenAmount(fromBaseUnits(inRaw, inTok.decimals));
+          const inUiFinal = formatTokenAmount(fromBaseUnits(inRaw, inTok.decimals));
           const outUi = formatTokenAmount(fromBaseUnits(outRaw, outTok.decimals));
-          toast.success(`Swapped ${inUi} ${inTok.symbol} for ${outUi} ${outTok.symbol}`, {
+          toast.success(`Swapped ${inUiFinal} ${inTok.symbol} for ${outUi} ${outTok.symbol}`, {
             id: toastId,
             action: solscanAction(signature),
             duration: 10_000,
@@ -408,8 +676,30 @@ export function useSwap() {
           // The order's requestId is consumed: never show or reuse it again.
           setResult(null);
           setInputAmount("");
+        } else if (isUnknownExecuteOutcome(data.code)) {
+          // It may still land: never re-sign this requestId, and block new
+          // swaps until the outcome is known (or can no longer change).
+          setResult(null);
+          setInputAmount("");
+          toast.warning(
+            signature
+              ? "Swap status unknown. Checking whether it landed..."
+              : describeExecuteError(EXECUTE_UNKNOWN_STATUS_CODE),
+            { id: toastId, action: solscanAction(signature), duration: PENDING_MAX_MS }
+          );
+          const record: PendingSwap = {
+            wallet: publicKey.toBase58(),
+            signature,
+            lastValidBlockHeight: parseBlockHeight(order.lastValidBlockHeight),
+            until: Date.now() + PENDING_MAX_MS,
+            toastId,
+            summary: `${inUi} ${inTok.symbol} → ${outTok.symbol}`,
+          };
+          // Recorded even if unmounted: a later mount resumes watching it.
+          usePendingSwapStore.getState().setPending(record);
+          if (mountedRef.current) watchPending(record);
         } else {
-          requote = data.code !== EXECUTE_UNKNOWN_STATUS_CODE;
+          requote = true;
           toast.error(describeExecuteError(data.code, data.error), {
             id: toastId,
             action: solscanAction(signature),
@@ -420,7 +710,10 @@ export function useSwap() {
         if (isUserRejection(err)) {
           toast("Swap cancelled", { id: toastId });
         } else {
-          requote = true;
+          const retryIn = transientRetryDelay(err);
+          // Rate limited / offline while re-fetching: back off, don't hammer.
+          if (retryIn !== null) scheduleRetry(retryIn);
+          else requote = true;
           const msg = err instanceof Error && err.message ? err.message : "Swap failed";
           toast.error(msg.length > 120 ? `${msg.slice(0, 119)}…` : msg, { id: toastId });
         }
@@ -432,10 +725,21 @@ export function useSwap() {
         setTimeout(refreshBalances, 4_000);
         // Requote after a failure, or if the inputs changed while swapping.
         const latest = latestRef.current.request;
-        if (latest && (requote || latest.key !== req.key)) void runQuote(latest);
+        if (mountedRef.current && latest && (requote || latest.key !== req.key)) {
+          void runQuote(latest);
+        }
       }
     },
-    [publicKey, signTransaction, cancelInflight, runQuote, refreshBalances, setInputAmount]
+    [
+      publicKey,
+      signTransaction,
+      cancelInflight,
+      runQuote,
+      scheduleRetry,
+      refreshBalances,
+      setInputAmount,
+      watchPending,
+    ]
   );
 
   const refresh = useCallback(() => {
@@ -460,6 +764,11 @@ export function useSwap() {
     isStale,
     executeSwap,
     swapping,
+    /** An earlier swap's outcome is unknown and it may still land: block swaps. */
+    pendingSwap: activePending
+      ? { signature: activePending.signature, canDismiss: !activePending.signature }
+      : null,
+    dismissPending,
     refresh,
   };
 }

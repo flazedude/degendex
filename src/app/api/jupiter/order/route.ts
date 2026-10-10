@@ -6,6 +6,7 @@ import {
   isTimeoutError,
   jsonResponse,
   jupiterHeaders,
+  rateLimitedResponse,
   readJson,
   upstreamError,
 } from "@/lib/jupiter/server";
@@ -24,9 +25,7 @@ export async function GET(req: NextRequest) {
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
-    if (res.status === 429) {
-      return jsonResponse({ error: "Rate limited by Jupiter, please retry" }, 429);
-    }
+    if (res.status === 429) return rateLimitedResponse(res);
     const body = await readJson(res);
     if (!res.ok || !body || typeof body !== "object") {
       // 4xx bodies carry useful text ("Could not find any route"); 5xx do not.

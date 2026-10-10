@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatTokenAmount, formatUsd, fromBaseUnits, safeBigNumber, toBaseUnits } from "./amounts";
+import {
+  formatTokenAmount,
+  formatUsd,
+  fromBaseUnits,
+  safeBigNumber,
+  sanitizeAmount,
+  toBaseUnits,
+  truncateToDecimals,
+} from "./amounts";
 
 describe("toBaseUnits", () => {
   it("converts across common decimals", () => {
@@ -102,5 +110,67 @@ describe("safeBigNumber", () => {
     expect(safeBigNumber("nope").isNaN()).toBe(true);
     expect(safeBigNumber("").isNaN()).toBe(true);
     expect(safeBigNumber(undefined).isNaN()).toBe(true);
+  });
+});
+
+describe("truncateToDecimals", () => {
+  it("cuts extra fraction digits without rounding up", () => {
+    expect(truncateToDecimals("0.123456789", 6)).toBe("0.123456");
+    expect(truncateToDecimals("1.999999999", 6)).toBe("1.999999");
+    expect(truncateToDecimals("1.5", 6)).toBe("1.5");
+    expect(truncateToDecimals("12", 6)).toBe("12");
+  });
+
+  it("drops the decimal point for 0 decimals", () => {
+    expect(truncateToDecimals("1.5", 0)).toBe("1");
+    expect(truncateToDecimals("7.", 0)).toBe("7");
+    expect(truncateToDecimals("3.", 6)).toBe("3");
+  });
+
+  it("returns '' for empty, zero or malformed results", () => {
+    expect(truncateToDecimals("", 6)).toBe("");
+    expect(truncateToDecimals("0.0000001", 6)).toBe("");
+    expect(truncateToDecimals("0.5", 0)).toBe("");
+    expect(truncateToDecimals("0", 6)).toBe("");
+    expect(truncateToDecimals("abc", 6)).toBe("");
+    expect(truncateToDecimals(".5", 6)).toBe("0.5");
+  });
+});
+
+describe("sanitizeAmount", () => {
+  it("accepts plain decimals and normalises leading zeros / dot", () => {
+    expect(sanitizeAmount("", 6)).toBe("");
+    expect(sanitizeAmount("12.5", 6)).toBe("12.5");
+    expect(sanitizeAmount(".5", 6)).toBe("0.5");
+    expect(sanitizeAmount("0007", 6)).toBe("7");
+    expect(sanitizeAmount("00.5", 6)).toBe("0.5");
+    expect(sanitizeAmount(" 1 000 ", 6)).toBe("1000");
+  });
+
+  it("treats a single lone comma as a decimal comma", () => {
+    expect(sanitizeAmount("1,5", 6)).toBe("1.5");
+    expect(sanitizeAmount(",5", 6)).toBe("0.5");
+    expect(sanitizeAmount("1,000", 6)).toBe("1.000");
+  });
+
+  it("strips grouping commas when there is also a dot or several commas", () => {
+    expect(sanitizeAmount("1,000,000", 6)).toBe("1000000");
+    expect(sanitizeAmount("1,234.56", 6)).toBe("1234.56");
+    expect(sanitizeAmount("1.234,56", 6)).toBeNull();
+  });
+
+  it("rejects malformed input", () => {
+    expect(sanitizeAmount("1e5", 6)).toBeNull();
+    expect(sanitizeAmount("..", 6)).toBeNull();
+    expect(sanitizeAmount("1.2.3", 6)).toBeNull();
+    expect(sanitizeAmount("-1", 6)).toBeNull();
+    expect(sanitizeAmount("1".repeat(41), 6)).toBeNull();
+  });
+
+  it("caps fraction digits at the token decimals", () => {
+    expect(sanitizeAmount("1.123456", 6)).toBe("1.123456");
+    expect(sanitizeAmount("1.1234567", 6)).toBeNull();
+    expect(sanitizeAmount("1.", 0)).toBeNull();
+    expect(sanitizeAmount("15", 0)).toBe("15");
   });
 });

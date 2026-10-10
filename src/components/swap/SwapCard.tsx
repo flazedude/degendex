@@ -18,7 +18,13 @@ import { useSettingsStore } from "@/store/useSettingsStore";
 import { useSwap } from "@/hooks/useSwap";
 import { useTokenBalance, type TokenBalance } from "@/hooks/useTokenBalance";
 import { SOL_MINT } from "@/lib/constants";
-import { formatTokenAmount, formatUsd, fromBaseUnits, safeBigNumber } from "@/lib/amounts";
+import {
+  formatTokenAmount,
+  formatUsd,
+  fromBaseUnits,
+  safeBigNumber,
+  sanitizeAmount,
+} from "@/lib/amounts";
 import { formatPriceImpact, type ImpactSeverity } from "@/lib/jupiter/priceImpact";
 import { getTokenWarnings, type TokenWarning } from "@/lib/tokens/risk";
 import { cn, shortenAddress } from "@/lib/utils";
@@ -29,6 +35,8 @@ import { TokenLogo } from "./TokenLogo";
 /** Kept back on MAX for SOL: network fees, ATA rent, wrapping. */
 const SOL_FEE_RESERVE_LAMPORTS = 10_000_000; // 0.01 SOL
 const CONFIRM_WINDOW_MS = 5_000;
+/** Clicks this soon after arming (e.g. a double-click) do not confirm. */
+const CONFIRM_MIN_DELAY_MS = 600;
 
 const ROUTER_NAMES: Record<string, string> = {
   metis: "Metis",
@@ -43,16 +51,6 @@ const SEVERITY_CLASS: Record<ImpactSeverity, string> = {
   high: "text-orange-500",
   extreme: "text-destructive font-semibold",
 };
-
-function sanitizeAmount(value: string, decimals: number): string | null {
-  let t = value.replace(/,/g, ".").replace(/\s/g, "");
-  if (t === "") return "";
-  if (!/^\d*\.?\d*$/.test(t) || t.length > 40) return null;
-  if (t.startsWith(".")) t = `0${t}`;
-  const frac = t.split(".")[1];
-  if (frac !== undefined && (decimals === 0 || frac.length > decimals)) return null;
-  return t.replace(/^0+(?=\d)/, "");
-}
 
 function BalanceLabel({ balance, connected }: { balance: TokenBalance; connected: boolean }) {
   if (!connected) return null;
@@ -158,6 +156,7 @@ export function SwapCard() {
   const [invertRate, setInvertRate] = useState(false);
   const [armedId, setArmedId] = useState<string | null>(null);
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armedAt = useRef(0);
 
   useEffect(() => {
     void useSettingsStore.persist.rehydrate();
@@ -220,6 +219,13 @@ export function SwapCard() {
     button = { label: "Connect Wallet", tone: "connect", action: "connect" };
   } else if (busy) {
     button = { label: "Swapping...", tone: "primary", action: null, spin: true };
+  } else if (swap.pendingSwap) {
+    button = {
+      label: "Previous swap may still land - check wallet",
+      tone: "muted",
+      action: null,
+      spin: !swap.pendingSwap.canDismiss,
+    };
   } else if (!rawAmount) {
     button = { label: "Enter an amount", tone: "muted", action: null };
   } else if (insufficient) {
@@ -243,6 +249,8 @@ export function SwapCard() {
       tone: "danger",
       action: "confirm-extreme",
     };
+  } else if (severity === "high") {
+    button = { label: `Swap (price impact ${impactLabel})`, tone: "primary", action: "swap" };
   } else {
     button = { label: "Swap", tone: "primary", action: "swap" };
   }
@@ -253,12 +261,18 @@ export function SwapCard() {
     } else if (button.action === "swap") {
       void swap.executeSwap();
     } else if (button.action === "confirm-extreme" && order) {
-      if (armTimer.current) clearTimeout(armTimer.current);
       if (!armed) {
+        if (armTimer.current) clearTimeout(armTimer.current);
         setArmedId(order.requestId);
+        armedAt.current = Date.now();
         armTimer.current = setTimeout(() => setArmedId(null), CONFIRM_WINDOW_MS);
         return;
       }
+      // A double-click or a too-quick second click must not confirm. Timing
+      // only: MouseEvent.detail keeps counting for users with a slow OS
+      // double-click setting, which would make confirming impossible.
+      if (Date.now() - armedAt.current < CONFIRM_MIN_DELAY_MS) return;
+      if (armTimer.current) clearTimeout(armTimer.current);
       setArmedId(null);
       void swap.executeSwap({ acceptedImpactPct: priceImpactPct });
     }
@@ -267,6 +281,28 @@ export function SwapCard() {
   const inUsd = formatUsd(order?.inUsdValue);
   const outUsd = formatUsd(order?.outUsdValue);
   const showDetails = !!order && !swap.quoteError;
+
+  // Without a taker (no wallet) Jupiter does not set Auto slippage, so the
+  // threshold equals the quote: do not present that as a minimum. RFQ
+  // (JupiterZ) fills at the quoted price, so there the minimum is the quote.
+  const isRfq = order?.router === "jupiterz";
+  const noTaker = order?.transaction === null;
+  const orderSlippageBps =
+    typeof order?.slippageBps === "number" && Number.isFinite(order.slippageBps)
+      ? order.slippageBps
+      : null;
+  let slippageText: string;
+  if (isRfq) {
+    slippageText = "Fixed price (RFQ)";
+  } else if (noTaker) {
+    slippageText = slippage === "auto" ? "Auto (set when you connect)" : slippageLabel(slippage);
+  } else if (orderSlippageBps === null) {
+    slippageText = slippageLabel(slippage);
+  } else {
+    const pct = `${orderSlippageBps / 100}%`;
+    slippageText = slippage === "auto" ? `Auto (${pct})` : pct;
+  }
+  const minReceivedUnknown = noTaker && !isRfq && slippage === "auto";
 
   return (
     <div className="w-full max-w-md space-y-2 border border-border/60 bg-card/80 p-3 backdrop-blur-sm border-gradient">
@@ -399,13 +435,11 @@ export function SwapCard() {
             <span className={SEVERITY_CLASS[severity]}>{impactLabel}</span>
           </Row>
           <Row label="Minimum received">
-            {formatTokenAmount(minReceived, { significant: 6, maxDecimals: 6 })} {outputToken.symbol}
+            {minReceivedUnknown
+              ? "Connect wallet to see"
+              : `${formatTokenAmount(minReceived, { significant: 6, maxDecimals: 6 })} ${outputToken.symbol}`}
           </Row>
-          <Row label="Slippage">
-            {slippage === "auto"
-              ? `Auto${typeof order.slippageBps === "number" ? ` (${order.slippageBps / 100}%)` : ""}`
-              : slippageLabel(slippage)}
-          </Row>
+          <Row label="Slippage">{slippageText}</Row>
           {swap.feeBps !== null && (
             <Row label="Fee">
               <span className="inline-flex items-center gap-1.5">
@@ -423,6 +457,11 @@ export function SwapCard() {
               .filter(Boolean)
               .join(": ") || "—"}
           </Row>
+          {severity === "high" && (
+            <p className="pt-1 text-[10px] text-orange-500">
+              High price impact ({impactLabel}): you get noticeably less than the market rate.
+            </p>
+          )}
           {swap.isStale && <p className="pt-1 text-[10px] text-yellow-500">Quote may be outdated, refreshing…</p>}
         </div>
       )}
@@ -442,6 +481,18 @@ export function SwapCard() {
         {button.spin && <Loader2 className="h-4 w-4 animate-spin" />}
         <span className="truncate">{button.label}</span>
       </Button>
+      {connected && swap.pendingSwap?.canDismiss && (
+        <p className="text-center text-xs text-muted-foreground">
+          Your last swap&apos;s status could not be confirmed.{" "}
+          <button
+            type="button"
+            onClick={swap.dismissPending}
+            className="underline underline-offset-2 hover:text-primary"
+          >
+            I&apos;ve checked my wallet
+          </button>
+        </p>
+      )}
     </div>
   );
 }

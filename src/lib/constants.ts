@@ -10,10 +10,6 @@ export const HELIUS_RPC_URL =
   process.env.NEXT_PUBLIC_HELIUS_RPC_URL ||
   "https://api.mainnet-beta.solana.com";
 
-export const SOLANA_NETWORK =
-  (process.env.NEXT_PUBLIC_SOLANA_NETWORK as "mainnet-beta" | "devnet") ||
-  "mainnet-beta";
-
 export const JUP_MINT = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
 export const BONK_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
 export const WIF_MINT = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm";

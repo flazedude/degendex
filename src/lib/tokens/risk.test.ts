@@ -23,13 +23,27 @@ describe("getTokenWarnings", () => {
     expect(getTokenWarnings({ ...safe, isVerified: undefined })[0].level).toBe("warning");
   });
 
-  it("flags active mint/freeze authority as danger (explicit false or missing)", () => {
-    const w = getTokenWarnings({ ...safe, audit: { mintAuthorityDisabled: false, topHoldersPercentage: 10 } });
+  it("flags active mint/freeze authority on unverified tokens as danger (explicit false or missing)", () => {
+    const w = getTokenWarnings({
+      ...safe,
+      isVerified: false,
+      audit: { mintAuthorityDisabled: false, topHoldersPercentage: 10 },
+    });
     expect(w.filter((x) => x.level === "danger").map((x) => x.message)).toEqual([
       "Mint authority active: supply can be inflated",
       "Freeze authority active: your tokens can be frozen",
     ]);
     expect(hasDanger(w)).toBe(true);
+    expect(hasDanger(getTokenWarnings({ mint: MINT, audit: {} }))).toBe(true);
+  });
+
+  it("downgrades active authorities on verified tokens to neutral warnings", () => {
+    const w = getTokenWarnings({ ...safe, audit: { mintAuthorityDisabled: false, topHoldersPercentage: 10 } });
+    expect(w).toEqual([
+      { level: "warning", message: "Issuer/program can mint more supply" },
+      { level: "warning", message: "Issuer can freeze token accounts" },
+    ]);
+    expect(hasDanger(w)).toBe(false);
   });
 
   it("flags concentration, low organic score and low liquidity", () => {
@@ -71,9 +85,7 @@ describe("getTokenWarnings", () => {
 
   it("does not trust verification tags alone for authority flags", () => {
     const w = getTokenWarnings({ ...safe, audit: { mintAuthorityDisabled: true } });
-    expect(w).toEqual([
-      { level: "danger", message: "Freeze authority active: your tokens can be frozen" },
-    ]);
+    expect(w).toEqual([{ level: "warning", message: "Issuer can freeze token accounts" }]);
   });
 
   it("produces no danger for the built-in popular tokens", () => {
