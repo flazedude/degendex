@@ -17,7 +17,6 @@ makers and more), so it inherits their depth and audited contracts.
 | Explore | Live, read-only. Top Solana pairs from DexScreener. |
 | Liquidity | Pool explorer is live (Raydium API). Deposits open on Raydium; in-app deposits are on the roadmap. |
 | Trade terminal | Solana-only markets (curated verified tokens plus search for any token) with live prices, on-chain candles and recent trades (GeckoTerminal), market orders in place (same Jupiter engine as Swap), wallet balances. Limit orders and time-based DCA through the Jupiter Trigger API v2 (beta, see [Limit orders and DCA](#limit-orders-and-dca)). |
-| Charts | TradingView embed (CEX prices). |
 | Portfolio | Coming soon. |
 
 ## Getting started
@@ -37,7 +36,7 @@ pnpm dev                     # http://localhost:3000
 | `NEXT_PUBLIC_HELIUS_RPC_URL` | browser | Solana RPC for wallet balances. Use a provider key restricted to your domains; the public endpoint rate-limits hard. |
 | `NEXT_PUBLIC_DEGN_MINT` | browser | Optional DEGN token mint, added to the swap token list. |
 | `CG_DEMO_API_KEY` | server | Free CoinGecko Demo key ([coingecko.com/en/api](https://www.coingecko.com/en/api)) for terminal candles and trades (100 calls/min). Without it the app uses keyless GeckoTerminal (~10 calls/min per server IP), which is enough for local dev only. |
-| `NEXT_PUBLIC_DISABLE_TRIGGER` | browser | Set to `1` to switch off limit orders and DCA (kill switch). |
+| `NEXT_PUBLIC_DISABLE_TRIGGER` | server + browser | Kill switch for limit orders and DCA. `1` (or `new`) pauses new orders but keeps Open orders, Cancel and Withdraw working; `all` switches everything off and points users to jup.ag to manage existing orders. The browser reads it at build time, so a change needs a redeploy. |
 
 ### Scripts
 
@@ -68,11 +67,17 @@ An idle swap tab requests a fresh quote about every 20 seconds, plus debounced
 requests while typing. On a 429 the app keeps the last quote on screen and retries
 once when Jupiter says a slot frees up.
 
-Also add a per-IP rate-limit rule for `/api/jupiter/order` and
-`/api/jupiter/tokens` in the Vercel Firewall (for example 30 requests per minute
-per IP), so a single client can't use up the shared quota. Leave
-`/api/jupiter/execute` out of it: throttling a signed transaction only hurts the
-user.
+The trade terminal adds market data (`/api/markets`, `/api/market/...`). Those
+routes cache per token on the server and at the CDN, and have their own share of
+the Jupiter budget, so their upstream calls stay roughly flat as visitors grow.
+Signed-in limit order and DCA users poll their order list every 30 seconds
+through `/api/jupiter/trigger/...`, which does count per user.
+
+Also add per-IP rate-limit rules in the Vercel Firewall so a single client can't
+use up the shared quotas, for example 30 requests per minute per IP on
+`/api/jupiter/order`, `/api/jupiter/tokens` and `/api/market/*`, and 60 per
+minute on `/api/jupiter/trigger/*`. Leave `/api/jupiter/execute` out of it:
+throttling a signed transaction only hurts the user.
 
 Terminal market data (`/api/markets`, `/api/market/...`) is cached on the
 server and at the CDN, so upstream calls stay roughly constant however many
@@ -97,7 +102,13 @@ Users see a one-time consent screen that says this before their first order.
   automatically: they show a Withdraw button under Open orders.
 - DEGN DEX takes no fee on these orders (the Trigger API has no integrator fee).
 - The API is in beta. Do one end-to-end test with a small amount before relying
-  on it, and use `NEXT_PUBLIC_DISABLE_TRIGGER=1` if something breaks.
+  on it. If something breaks, set `NEXT_PUBLIC_DISABLE_TRIGGER=1` and redeploy:
+  new orders pause, but users can still see, cancel and withdraw what they have.
+- Sign-in, token refresh, vault registration, order history and deposit crafting
+  were tested live through the proxy with a throwaway wallet, and the deposit
+  safety check is tested against real Jupiter deposit transactions
+  (`src/lib/jupiter/trigger/__fixtures__`). Placing, filling and cancelling an
+  order with real funds is the part still to test.
 
 ## How a swap works
 
