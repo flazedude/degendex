@@ -17,7 +17,7 @@ import { TokenSelector } from "./TokenSelector";
 import { SwapSettings } from "./SwapSettings";
 import { TokenLogo } from "./TokenLogo";
 import { TokenWarningBanner } from "./TokenWarningBanner";
-import { swapButtonState } from "./swapButtonState";
+import { swapButtonState, swappingLabelFor } from "./swapButtonState";
 import { useArmedConfirm } from "./useArmedConfirm";
 import {
   SEVERITY_CLASS,
@@ -100,7 +100,9 @@ export function SwapCard() {
     void useSettingsStore.persist.rehydrate();
   }, []);
 
-  const busy = swap.swapping;
+  // Also busy while a swap from this wallet started elsewhere (the terminal,
+  // or before leaving this page) is still running.
+  const busy = swap.swapping || !!swap.swapInFlight;
 
   const spendableRaw = useMemo(
     () => getSpendableRaw(inBal.raw, inputToken.mint),
@@ -145,6 +147,11 @@ export function SwapCard() {
     severity,
     priceImpactPct,
     armed,
+    swappingLabel: swappingLabelFor(
+      swap.swapInFlight,
+      { inputMint: inputToken.mint, outputMint: outputToken.mint },
+      "Swapping..."
+    ),
   });
 
   const handleButtonClick = () => {

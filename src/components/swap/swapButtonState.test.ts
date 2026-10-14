@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { swapButtonState, type SwapButtonInput } from "./swapButtonState";
+import { swapButtonState, swappingLabelFor, type SwapButtonInput } from "./swapButtonState";
 
 /** Everything ready to swap; each test breaks one thing. */
 const READY: SwapButtonInput = {
@@ -187,5 +187,41 @@ describe("swapButtonState", () => {
       expect(state({ severity: "extreme", quoteError: "Network error, retrying" }).kind).toBe("quote-error");
       expect(state({ severity: "high", orderError: "Order failed" }).kind).toBe("order-error");
     });
+  });
+});
+
+describe("swappingLabelFor", () => {
+  const running = { inputMint: "USDC", outputMint: "BONK", inputSymbol: "USDC", outputSymbol: "BONK" };
+
+  it("keeps the form's own label for its own pair, or when nothing runs", () => {
+    expect(swappingLabelFor(running, { inputMint: "USDC", outputMint: "BONK" }, "Buying...")).toBe("Buying...");
+    expect(swappingLabelFor(null, { inputMint: "USDC", outputMint: "WIF" }, "Buying...")).toBe("Buying...");
+  });
+
+  it("names the running pair when the screen shows another market", () => {
+    expect(swappingLabelFor(running, { inputMint: "USDC", outputMint: "WIF" }, "Buying...")).toBe(
+      "Swapping USDC → BONK..."
+    );
+  });
+
+  it("feeds the disabled swapping state of the button", () => {
+    const label = swappingLabelFor(running, { inputMint: "USDC", outputMint: "WIF" }, "Buying...");
+    const s = swapButtonState({
+      connected: true,
+      swapping: true,
+      pendingSwap: null,
+      rawAmount: null,
+      insufficient: false,
+      inputSymbol: "USDC",
+      isQuoting: false,
+      quoteError: null,
+      orderError: null,
+      order: null,
+      severity: "low",
+      priceImpactPct: 0,
+      armed: false,
+      swappingLabel: label,
+    });
+    expect(s).toMatchObject({ kind: "swapping", label: "Swapping USDC → BONK...", action: null });
   });
 });

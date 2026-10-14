@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { SwapSettings } from "@/components/swap/SwapSettings";
 import { TokenLogo } from "@/components/swap/TokenLogo";
 import { TokenWarningBanner } from "@/components/swap/TokenWarningBanner";
-import { swapButtonState } from "@/components/swap/swapButtonState";
+import { swapButtonState, swappingLabelFor } from "@/components/swap/swapButtonState";
 import { useArmedConfirm } from "@/components/swap/useArmedConfirm";
 import {
   SEVERITY_CLASS,
@@ -78,7 +78,9 @@ export function MarketOrderForm({ base }: { base: TokenInfo }) {
   const payBal = useTokenBalance(input);
   const confirm = useArmedConfirm();
 
-  const busy = swap.swapping;
+  // Also busy while a swap from this wallet started before a remount / market
+  // change is still running.
+  const busy = swap.swapping || !!swap.swapInFlight;
   const verb = side === "buy" ? "Buy" : "Sell";
 
   const spendableRaw = useMemo(
@@ -126,7 +128,11 @@ export function MarketOrderForm({ base }: { base: TokenInfo }) {
     priceImpactPct,
     armed,
     actionLabel: `${verb} ${base.symbol}`,
-    swappingLabel: side === "buy" ? "Buying..." : "Selling...",
+    swappingLabel: swappingLabelFor(
+      swap.swapInFlight,
+      { inputMint: input.mint, outputMint: output.mint },
+      side === "buy" ? "Buying..." : "Selling..."
+    ),
     compact: true,
   });
 

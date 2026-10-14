@@ -140,3 +140,27 @@ export function swapButtonState(input: SwapButtonInput): SwapButtonState {
   }
   return { kind: "swap", label: actionLabel, tone: "primary", action: "swap" };
 }
+
+/** The running swap's pair (useSwap's swapInFlight). */
+export interface InFlightPair {
+  inputMint: string;
+  outputMint: string;
+  inputSymbol: string;
+  outputSymbol: string;
+}
+
+/**
+ * Button label while a swap runs. `ownLabel` ("Buying...") when the running
+ * swap is the pair on screen; otherwise it names the running pair, because the
+ * form may show another market (or have remounted) since Swap was pressed.
+ */
+export function swappingLabelFor(
+  inFlight: InFlightPair | null,
+  pair: { inputMint: string; outputMint: string },
+  ownLabel: string
+): string {
+  if (!inFlight || (inFlight.inputMint === pair.inputMint && inFlight.outputMint === pair.outputMint)) {
+    return ownLabel;
+  }
+  return `Swapping ${inFlight.inputSymbol} → ${inFlight.outputSymbol}...`;
+}

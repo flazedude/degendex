@@ -11,11 +11,20 @@ import { TokenLogo } from "@/components/swap/TokenLogo";
 import { useRefreshBalances } from "@/hooks/useTokenBalance";
 import { useTokenMetadata } from "@/hooks/useTokenMetadata";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
+import { useTriggerOrders } from "@/hooks/useTriggerOrders";
 import { useWalletHoldings } from "@/hooks/useWalletHoldings";
+import { MANAGE_ENABLED } from "@/lib/jupiter/trigger/config";
 import { cn, shortenAddress } from "@/lib/utils";
 import { useTerminalUiStore, type BottomTabId } from "@/store/useTerminalUiStore";
 import { OpenOrdersTable, OrderHistoryTable, useOpenOrdersBadge } from "./trigger";
-import { buildBalanceRows, totalValueUsd, type BalanceRow } from "./balanceRows";
+import {
+  buildBalanceRows,
+  buildVaultRows,
+  isNftLike,
+  totalValueUsd,
+  type BalanceRow,
+  type VaultRow,
+} from "./balanceRows";
 import { formatPct, formatUsdPrice, formatUsdValue } from "./tradesFormat";
 
 const TABS: { id: BottomTabId; label: string }[] = [
@@ -85,12 +94,46 @@ function BalanceRowView({ row }: { row: BalanceRow }) {
   );
 }
 
+/** Funds Jupiter holds for the wallet's limit / DCA orders (not a wallet balance, so not a link). */
+function VaultRowView({ row }: { row: VaultRow }) {
+  return (
+    <div className={cn(GRID, "border-l-2 border-l-transparent px-3 py-1 text-[11px]")}>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <TokenLogo symbol={row.symbol} logoURI={row.logoURI} className="h-4 w-4 text-[8px]" />
+        <span className="truncate font-medium leading-tight">{row.symbol}</span>
+      </span>
+      <span className="truncate text-right font-mono tabular-nums" title={row.ui ? `${row.ui} ${row.symbol}` : undefined}>
+        {row.balance}
+      </span>
+      <span className="truncate text-right font-mono tabular-nums text-muted-foreground">
+        {formatUsdPrice(row.priceUsd)}
+      </span>
+      <span className="truncate text-right font-mono tabular-nums">{formatUsdValue(row.valueUsd)}</span>
+      <span className="truncate text-right text-[10px] text-muted-foreground">
+        {row.orders === 1 ? "1 order" : `${row.orders} orders`}
+      </span>
+    </div>
+  );
+}
+
+function DelayedBadge() {
+  return (
+    <span
+      className="border border-yellow-500/40 bg-yellow-500/10 px-1 py-px text-[9px] font-medium uppercase text-yellow-400"
+      title="Prices may be delayed: showing the last successful update"
+    >
+      Delayed
+    </span>
+  );
+}
+
 function Balances({ mint }: { mint: string }) {
   const { connected, connecting } = useWallet();
   const { setVisible } = useWalletModal();
   const holdings = useWalletHoldings();
   const refresh = useRefreshBalances();
   const [showSmall, setShowSmall] = useState(false);
+  const setTab = useTerminalUiStore((s) => s.setBottomTab);
 
   const mints = useMemo(() => (holdings.data ?? []).map((h) => h.mint), [holdings.data]);
   const metadata = useTokenMetadata(mints);
@@ -99,9 +142,34 @@ function Balances({ mint }: { mint: string }) {
   // metadata call fails, price everything rather than show nothing.
   const priceMints = useMemo(() => {
     if (metadata.data) return mints.filter((m) => metadata.data[m]);
-    return metadata.isError ? mints : [];
-  }, [mints, metadata.data, metadata.isError]);
+    // Fallback without metadata: skip NFT-like holdings Jupiter never prices.
+    if (!metadata.isError) return [];
+    return (holdings.data ?? []).filter((h) => h.decimals > 0 && !isNftLike(h)).map((h) => h.mint);
+  }, [mints, holdings.data, metadata.data, metadata.isError]);
   const prices = useTokenPrices(priceMints);
+
+  // Trigger v2 is custodial: an order's input sits in Jupiter's vault, not in
+  // the wallet. Shown separately (and only when signed in to read orders).
+  const orders = useTriggerOrders();
+  const vaultOrders = useMemo(
+    () => (orders.enabled ? [...orders.activeRows, ...orders.needsWithdraw] : []),
+    [orders.enabled, orders.activeRows, orders.needsWithdraw]
+  );
+  const vaultMints = useMemo(
+    () => Array.from(new Set(vaultOrders.map((o) => o.inputMint))),
+    [vaultOrders]
+  );
+  const vaultMeta = useTokenMetadata(vaultMints);
+  const vaultPrices = useTokenPrices(vaultMints);
+  const vaultRows = useMemo(() => {
+    const walletDecimals = new Map((holdings.data ?? []).map((h) => [h.mint, h.decimals]));
+    return buildVaultRows(
+      vaultOrders,
+      (m) => walletDecimals.get(m) ?? vaultMeta.data?.[m]?.decimals,
+      vaultMeta.data,
+      vaultPrices.data
+    );
+  }, [vaultOrders, holdings.data, vaultMeta.data, vaultPrices.data]);
 
   const rows = useMemo(
     () => buildBalanceRows(holdings.data ?? [], metadata.data, prices.data, mint),
@@ -111,6 +179,9 @@ function Balances({ mint }: { mint: string }) {
   const hiddenCount = rows.length - rows.filter((r) => !r.isDust).length;
   const total = totalValueUsd(rows);
   const unpriced = rows.filter((r) => r.valueUsd === null && !r.isDust).length;
+  const vaultTotal = totalValueUsd(vaultRows);
+  const vaultUnpriced = vaultRows.filter((r) => r.valueUsd === null).length;
+  const pricesDelayed = (prices.stale && !!prices.data) || (vaultRows.length > 0 && vaultPrices.stale);
 
   if (!connected) {
     return (
@@ -159,7 +230,7 @@ function Balances({ mint }: { mint: string }) {
   const notes: string[] = [];
   if (holdings.isError) notes.push("Balances could not be refreshed; showing the last loaded values.");
   if (prices.isError && !prices.data) notes.push("Prices unavailable right now.");
-  else if (prices.isError) notes.push("Prices could not be refreshed and may be delayed.");
+  if (orders.enabled && orders.error) notes.push("Open orders could not be refreshed; \"In orders\" may be incomplete.");
   if (metadata.isError && !metadata.data) notes.push("Token names unavailable; showing mint addresses.");
 
   return (
@@ -179,7 +250,7 @@ function Balances({ mint }: { mint: string }) {
       {visible.length === 0 ? (
         <Centered>
           <p className="text-[11px] text-muted-foreground">
-            {rows.length === 0 ? "No tokens in this wallet" : "No balances worth $0.01 or more"}
+            {rows.length === 0 ? "No tokens in this wallet" : "Only small or unknown tokens (hidden)"}
           </p>
         </Centered>
       ) : (
@@ -191,13 +262,37 @@ function Balances({ mint }: { mint: string }) {
           ))}
         </div>
       )}
+      {vaultRows.length > 0 && (
+        <div role="group" aria-labelledby="vault-balances-title" className="border-t border-border/50">
+          <div className="px-3 pt-1.5 pb-0.5 text-[10px] text-muted-foreground">
+            <span id="vault-balances-title" className="font-medium uppercase tracking-wide text-foreground/80">
+              In orders (Jupiter vault)
+            </span>{" "}
+            · held by Jupiter for your open limit / DCA orders, not in your wallet
+          </div>
+          <div role="list" aria-label="Funds held in the Jupiter vault">
+            {vaultRows.map((r) => (
+              <div role="listitem" key={r.mint}>
+                <VaultRowView row={r} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-border/50 px-3 py-1 text-[10px] text-muted-foreground">
         {total !== null && (
           <span>
-            Total <span className="font-mono text-foreground/90">{formatUsdValue(total)}</span>
+            Wallet <span className="font-mono text-foreground/90">{formatUsdValue(total)}</span>
             {unpriced > 0 ? ` excl. ${unpriced} unpriced` : ""}
           </span>
         )}
+        {vaultRows.length > 0 && (
+          <span title="Held by Jupiter for your open orders; not included in the wallet total">
+            In orders <span className="font-mono text-foreground/90">{formatUsdValue(vaultTotal)}</span>
+            {vaultUnpriced > 0 && vaultTotal !== null ? ` excl. ${vaultUnpriced} unpriced` : ""}
+          </span>
+        )}
+        {pricesDelayed && <DelayedBadge />}
         {hiddenCount > 0 && (
           <label className="flex cursor-pointer items-center gap-1">
             <input
@@ -206,8 +301,16 @@ function Balances({ mint }: { mint: string }) {
               onChange={(e) => setShowSmall(e.target.checked)}
               className="h-3 w-3 accent-primary"
             />
-            Show small balances ({hiddenCount})
+            Show small/unknown tokens ({hiddenCount})
           </label>
+        )}
+        {MANAGE_ENABLED && !orders.enabled && (
+          <span>
+            Funds in limit orders/DCA are not shown - sign in under{" "}
+            <button type="button" onClick={() => setTab("open")} className="underline underline-offset-2 hover:text-foreground">
+              Open orders
+            </button>
+          </span>
         )}
         {notes.map((n) => (
           <span key={n} className="text-yellow-500">

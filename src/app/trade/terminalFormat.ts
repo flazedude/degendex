@@ -2,6 +2,8 @@
 // arrives as JSON numbers and is display-only here; token amounts that feed a
 // transaction never pass through these helpers.
 
+import { isValidPubkey } from "@/lib/jupiter/params";
+
 const SUBSCRIPT = ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"];
 
 function subscript(n: number): string {
@@ -90,4 +92,30 @@ export function formatCount(value: number | null | undefined): string {
 /** "So11…1112" style short mint. */
 export function shortMint(mint: string, chars = 4): string {
   return mint.length <= chars * 2 + 1 ? mint : `${mint.slice(0, chars)}…${mint.slice(-chars)}`;
+}
+
+/**
+ * The market Enter opens in the search box. An exact valid mint always wins
+ * (a paste must never open something else), then curated matches, then the
+ * search results for this very query. `currentSearchMints` is null while the
+ * only results available are still those of an earlier query (debounce).
+ */
+export function enterTarget(
+  rawQuery: string,
+  curatedMints: readonly string[],
+  currentSearchMints: readonly string[] | null
+): string | undefined {
+  const q = rawQuery.trim();
+  if (!q) return undefined;
+  if (isValidPubkey(q)) return q;
+  return curatedMints[0] ?? currentSearchMints?.[0];
+}
+
+/**
+ * Whether market-list prices may be out of date: the server served its last
+ * good copy (stale), or the latest refetch failed and the previous list is
+ * still on screen.
+ */
+export function marketsDelayed(q: { data?: { stale?: boolean } | undefined; isRefetchError: boolean }): boolean {
+  return !!q.data && (q.data.stale === true || q.isRefetchError);
 }

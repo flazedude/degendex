@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { BONK_MINT, USDC_MINT } from "@/lib/constants";
 import {
   changeClass,
+  enterTarget,
+  marketsDelayed,
   formatCompactUsd,
   formatCount,
   formatPct,
@@ -136,5 +139,35 @@ describe("chartPriceFormat", () => {
     expect(chartPriceFormat(0.00000322)).toEqual({ type: "price", precision: 9, minMove: 1e-9 });
     expect(chartPriceFormat(1e-15).precision).toBe(12);
     expect(chartPriceFormat(null).precision).toBe(2);
+  });
+});
+
+describe("enterTarget", () => {
+  it("opens a pasted mint even while older search results are around", () => {
+    // Results still from the previous query ("bonk") must not win over the paste.
+    expect(enterTarget(` ${USDC_MINT} `, [], [BONK_MINT])).toBe(USDC_MINT);
+    expect(enterTarget(USDC_MINT, [BONK_MINT], null)).toBe(USDC_MINT);
+  });
+
+  it("prefers curated matches, then results for the current query", () => {
+    expect(enterTarget("bo", ["curated"], ["searched"])).toBe("curated");
+    expect(enterTarget("bo", [], ["searched"])).toBe("searched");
+  });
+
+  it("ignores results that belong to an earlier query", () => {
+    expect(enterTarget("wif", [], null)).toBeUndefined();
+    expect(enterTarget("   ", ["curated"], ["searched"])).toBeUndefined();
+  });
+});
+
+describe("marketsDelayed", () => {
+  it("flags server-stale data and a failed refetch over old data", () => {
+    expect(marketsDelayed({ data: { stale: true }, isRefetchError: false })).toBe(true);
+    expect(marketsDelayed({ data: {}, isRefetchError: true })).toBe(true);
+    expect(marketsDelayed({ data: { stale: false }, isRefetchError: false })).toBe(false);
+  });
+
+  it("is false without data (the list shows its own error instead)", () => {
+    expect(marketsDelayed({ data: undefined, isRefetchError: true })).toBe(false);
   });
 });

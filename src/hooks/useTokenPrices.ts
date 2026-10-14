@@ -60,12 +60,6 @@ export function withStale<Q extends object>(query: Q, stale: boolean): Q & { sta
   }) as Q & { stale: boolean };
 }
 
-/**
- * Jupiter USD prices for `mints` (any order, duplicates ignored), fetched in
- * chunks of <= 50 and merged by mint. Mints without a reliable price are
- * absent. Polls every 30s; disabled for an empty list. `stale` flags prices
- * that may be delayed (see pricesStale).
- */
 /** The query both observers in useTokenPrices share (key, fetcher, caching). */
 export function tokenPricesQuery(ids: readonly string[]) {
   return {

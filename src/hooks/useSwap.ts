@@ -8,9 +8,13 @@ import { toast } from "sonner";
 import { useSwapStore, type TokenInfo } from "@/store/useSwapStore";
 import { useSettingsStore, type SlippageSetting } from "@/store/useSettingsStore";
 import {
+  beginSwap,
+  endSwap,
   isSwapBlocked,
   usePendingSwapStore,
+  useSwapInFlight,
   type PendingSwap,
+  type SwapInFlight,
 } from "@/store/usePendingSwapStore";
 import { useRefreshBalances } from "@/hooks/useTokenBalance";
 import { formatTokenAmount, fromBaseUnits, toBaseUnits } from "@/lib/amounts";
@@ -45,6 +49,7 @@ const RETRY_JITTER_MS = 1_000;
 const PENDING_MAX_MS = 90_000;
 const STATUS_POLL_MS = 2_000;
 const RPC_TIMEOUT_MS = 8_000;
+export const SWAP_IN_PROGRESS_MESSAGE = "A swap is already in progress";
 
 export interface QuoteRequest {
   key: string;
@@ -315,6 +320,8 @@ export function useSwap(source?: SwapSource) {
   const [inflightKey, setInflightKey] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
   const pending = usePendingSwapStore((s) => s.pending);
+  // Any swap from this wallet (this hook's, or one started by another mount).
+  const inFlight = useSwapInFlight(taker);
   const [now, setNow] = useState(0);
 
   const seqRef = useRef(0);
@@ -565,14 +572,13 @@ export function useSwap(source?: SwapSource) {
     };
   }, [cancelInflight, clearRetry, stopPendingWatch]);
 
-  // Resume watching a block that outlived an earlier mount of this hook.
+  // Watch a block nobody here is watching yet: one that outlived an earlier
+  // mount, or one recorded by a swap whose form unmounted while it ran.
   useEffect(() => {
-    if (watchingRef.current) return;
-    const p = usePendingSwapStore.getState().pending;
-    if (!p) return;
-    if (p.until <= Date.now()) usePendingSwapStore.getState().clearPending(p);
-    else watchPending(p);
-  }, [watchPending]);
+    if (watchingRef.current || !pending) return;
+    if (pending.until <= Date.now()) usePendingSwapStore.getState().clearPending(pending);
+    else watchPending(pending);
+  }, [pending, watchPending]);
 
   const matching = request && result?.key === request.key ? result : null;
   const order = matching?.order ?? null;
@@ -612,8 +618,9 @@ export function useSwap(source?: SwapSource) {
         toast.error("Connect your wallet first");
         return;
       }
+      const wallet = publicKey.toBase58();
       // An earlier swap from this wallet may still land.
-      if (isSwapBlocked(publicKey.toBase58())) return;
+      if (isSwapBlocked(wallet)) return;
       if (!signTransaction) {
         toast.error("This wallet cannot sign transactions");
         return;
@@ -623,13 +630,28 @@ export function useSwap(source?: SwapSource) {
       const shown =
         req && snap.result?.key === req.key ? snap.result : null;
       // Only ever sign for the quote currently on screen, for this wallet.
-      if (!req || !shown?.order || req.taker !== publicKey.toBase58()) return;
+      if (!req || !shown?.order || req.taker !== wallet) return;
+
+      const inTok = snap.inputToken;
+      const outTok = snap.outputToken;
+      // One swap per wallet at a time, across every form and page: a form
+      // that remounted mid-swap starts with a fresh hook and must not sign a
+      // second one while the first is still being signed or executed.
+      const flight: SwapInFlight | null = beginSwap({
+        wallet,
+        inputMint: inTok.mint,
+        outputMint: outTok.mint,
+        inputSymbol: inTok.symbol,
+        outputSymbol: outTok.symbol,
+      });
+      if (!flight) {
+        toast.error(SWAP_IN_PROGRESS_MESSAGE);
+        return;
+      }
 
       swappingRef.current = true;
       setSwapping(true);
       cancelInflight(); // no background quote may replace the displayed one
-      const inTok = snap.inputToken;
-      const outTok = snap.outputToken;
       const toastId = toast.loading("Preparing swap...");
       let requote = false;
 
@@ -674,7 +696,8 @@ export function useSwap(source?: SwapSource) {
         const tx = VersionedTransaction.deserialize(base64ToBytes(order.transaction!));
         assertWalletSigns(tx, publicKey);
 
-        toast.loading("Confirm in your wallet...", { id: toastId });
+        // Names the pair: the screen may show another market by now.
+        toast.loading(`Confirm ${inTok.symbol} → ${outTok.symbol} in your wallet...`, { id: toastId });
         const signed = await signTransaction(tx);
         // Known before submission when the wallet pays the fee (not gasless).
         const localSignature = feePayerSignature(signed, publicKey);
@@ -764,6 +787,8 @@ export function useSwap(source?: SwapSource) {
           toast.error(msg.length > 120 ? `${msg.slice(0, 119)}…` : msg, { id: toastId });
         }
       } finally {
+        // Runs even after unmount, so the wallet's slot is always released.
+        endSwap(flight);
         swappingRef.current = false;
         setSwapping(false);
         refreshBalances();
@@ -808,7 +833,13 @@ export function useSwap(source?: SwapSource) {
     orderError,
     isStale,
     executeSwap,
+    /** This hook's own swap is running. */
     swapping,
+    /**
+     * A swap from the connected wallet is running here or in another mount
+     * (e.g. before a tab or market change). Block new swaps while set.
+     */
+    swapInFlight: inFlight,
     /** An earlier swap's outcome is unknown and it may still land: block swaps. */
     pendingSwap: activePending
       ? { signature: activePending.signature, canDismiss: !activePending.signature }

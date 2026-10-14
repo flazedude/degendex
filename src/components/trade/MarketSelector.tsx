@@ -2,15 +2,24 @@
 
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, Search, Star } from "lucide-react";
 import { useMarkets } from "@/hooks/useMarkets";
 import { useTokenSearch } from "@/hooks/useTokenSearch";
 import { isValidPubkey } from "@/lib/jupiter/params";
+import { fetchTokens } from "@/lib/tokens/map";
 import type { MarketSummary } from "@/lib/markets/types";
 import type { TokenInfo } from "@/lib/tokens/types";
 import { cn } from "@/lib/utils";
 import { TokenLogo } from "@/components/swap/TokenLogo";
-import { changeClass, formatPct, formatPrice, shortMint } from "@/app/trade/terminalFormat";
+import {
+  changeClass,
+  enterTarget,
+  formatPct,
+  formatPrice,
+  marketsDelayed,
+  shortMint,
+} from "@/app/trade/terminalFormat";
 
 // ---------------------------------------------------------------------------
 // Favourites: a tiny localStorage-backed store read with useSyncExternalStore
@@ -239,6 +248,16 @@ export function MarketSelector({
   const [query, setQuery] = useState("");
   const markets = useMarkets();
   const search = useTokenSearch(query);
+  // useTokenSearch returns the last debounced query's results, which for
+  // ~250ms after typing or pasting belong to the previous text. This passive
+  // observer (same key and fetcher as useTokenSearch, never fetches itself)
+  // reads only the results for exactly what is in the box now.
+  const searchKey = query.trim().slice(0, 200);
+  const currentSearch = useQuery({
+    queryKey: ["tokenSearch", searchKey],
+    queryFn: ({ signal }) => fetchTokens(searchKey, signal),
+    enabled: false,
+  });
   const { favs, toggle } = useFavourites();
 
   const list = useMemo(() => markets.data?.markets ?? [], [markets.data]);
@@ -264,7 +283,7 @@ export function MarketSelector({
 
   const curatedHits = q ? list.filter((m) => matches(m, q)).map(fromSummary) : [];
   const searchHits = q
-    ? search.tokens
+    ? (currentSearch.data ?? [])
         .filter((t) => !byMint.has(t.mint))
         .map(fromToken)
         // Stable sort keeps Jupiter's relevance order inside each group.
@@ -274,7 +293,11 @@ export function MarketSelector({
   const showOpenMint =
     isValidPubkey(rawMint) && !byMint.has(rawMint) && !searchHits.some((s) => s.mint === rawMint);
 
-  const firstHit = curatedHits[0]?.mint ?? searchHits[0]?.mint ?? (showOpenMint ? rawMint : undefined);
+  const firstHit = enterTarget(
+    rawMint,
+    curatedHits.map((h) => h.mint),
+    currentSearch.data ? searchHits.map((h) => h.mint) : null
+  );
 
   const renderRows = (rows: RowItem[]) =>
     rows.map((item) => (
@@ -307,7 +330,7 @@ export function MarketSelector({
             className="w-full border border-border/50 bg-background py-1 pl-6 pr-2 text-[11px] outline-none focus:border-primary/50"
           />
         </div>
-        {markets.data?.stale && (
+        {marketsDelayed(markets) && (
           <span
             className="shrink-0 border border-yellow-500/40 bg-yellow-500/10 px-1 py-px text-[9px] font-medium uppercase text-yellow-400"
             title="Prices are from the last successful update"

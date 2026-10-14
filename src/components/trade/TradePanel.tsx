@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { useSwapInFlight } from "@/store/usePendingSwapStore";
 import { TRIGGER_ENABLED } from "@/lib/jupiter/trigger/config";
 import type { TokenInfo } from "@/lib/tokens/types";
 import { cn } from "@/lib/utils";
@@ -16,6 +18,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 const UNAVAILABLE = "Temporarily unavailable";
+const SWAP_RUNNING = "Wait for the market order to finish";
 
 /**
  * Order entry for the terminal. Market orders swap via Jupiter on the same
@@ -24,6 +27,9 @@ const UNAVAILABLE = "Temporarily unavailable";
  */
 export function TradePanel({ base }: { base: TokenInfo }) {
   const [tab, setTab] = useState<TabId>("market");
+  const { publicKey } = useWallet();
+  // Leaving the Market tab mid-swap would hide the running order's progress.
+  const swapRunning = !!useSwapInFlight(publicKey?.toBase58());
   // Slippage is a persisted setting shared with the Swap page.
   useEffect(() => {
     void useSettingsStore.persist.rehydrate();
@@ -37,7 +43,9 @@ export function TradePanel({ base }: { base: TokenInfo }) {
       <div>
         <div role="tablist" aria-label="Order type" className="flex gap-1 border-b border-border/50 text-[11px]">
           {TABS.map((t) => {
-            const enabled = !t.trigger || TRIGGER_ENABLED;
+            const available = !t.trigger || TRIGGER_ENABLED;
+            const locked = swapRunning && t.trigger && t.id !== active;
+            const enabled = available && !locked;
             return (
               <button
                 key={t.id}
@@ -47,7 +55,7 @@ export function TradePanel({ base }: { base: TokenInfo }) {
                 aria-selected={active === t.id}
                 aria-controls="order-tabpanel"
                 disabled={!enabled}
-                title={enabled ? undefined : UNAVAILABLE}
+                title={!available ? UNAVAILABLE : locked ? SWAP_RUNNING : undefined}
                 onClick={() => setTab(t.id)}
                 className={cn(
                   "-mb-px border-b px-2 py-1 font-medium transition-colors",
