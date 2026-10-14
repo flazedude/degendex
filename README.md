@@ -53,36 +53,44 @@ pull request.
 
 ## Rate limits
 
-All quote and token-search traffic goes through the server routes, so every
-visitor shares **one** Jupiter rate limit (it applies per organisation, not per
-key). `/swap/v2/execute` has its own, much larger bucket.
+Every Jupiter call goes through the server routes, so all visitors share **one**
+Jupiter rate limit (it applies per organisation, not per key). Quotes, token
+search, prices and the Trigger API (limit orders, DCA) all draw from it; only
+`/swap/v2/execute` has its own, much larger bucket.
 
 | Jupiter plan | Main limit | Good for |
 |---|---|---|
 | Keyless (no key) | 0.5 req/s | Local development |
-| Free key | 1 req/s (60/min) | A few concurrent users |
-| Developer and up | 10+ req/s | Real traffic |
+| Free key | 1 req/s (60/min) | A handful of concurrent users |
+| Developer and up | 10+ req/s | Real traffic, and anything with limit orders on |
 
-An idle swap tab requests a fresh quote about every 20 seconds, plus debounced
-requests while typing. On a 429 the app keeps the last quote on screen and retries
-once when Jupiter says a slot frees up.
+Where the budget goes:
 
-The trade terminal adds market data (`/api/markets`, `/api/market/...`). Those
-routes cache per token on the server and at the CDN, and have their own share of
-the Jupiter budget, so their upstream calls stay roughly flat as visitors grow.
-Signed-in limit order and DCA users poll their order list every 30 seconds
-through `/api/jupiter/trigger/...`, which does count per user.
+- **Swap quotes**: an open swap or market-order form with an amount entered
+  requests a fresh quote about every 20 seconds, plus debounced requests while
+  typing. On a 429 the app keeps the last quote and retries once when Jupiter
+  says a slot frees up, and market data backs off too.
+- **Market data** (`/api/markets`, `/api/market/...`): capped at 40 Jupiter
+  calls/min with a key, 10 keyless. Baseline is about 7 calls/min for the curated
+  market list. Prices and stats are cached per token and shared by everyone, so
+  each additional token that someone is viewing or holding adds a few calls a
+  minute, not one per visitor. When an upstream is rate-limited the routes serve
+  the last good data (up to 10 minutes) and the UI marks it as delayed.
+- **Limit orders and DCA**: each signed-in user polls their order list about
+  every 30 seconds while the tab is visible. This one grows with users.
+- Budgets and caches are per server instance (per serverless instance or region
+  on Vercel), so several instances together can spend more.
+
+Candles and recent trades come from GeckoTerminal: about 10 calls/min per server
+IP without a key, 100/min with `CG_DEMO_API_KEY`.
 
 Also add per-IP rate-limit rules in the Vercel Firewall so a single client can't
 use up the shared quotas, for example 30 requests per minute per IP on
-`/api/jupiter/order`, `/api/jupiter/tokens` and `/api/market/*`, and 60 per
-minute on `/api/jupiter/trigger/*`. Leave `/api/jupiter/execute` out of it:
-throttling a signed transaction only hurts the user.
-
-Terminal market data (`/api/markets`, `/api/market/...`) is cached on the
-server and at the CDN, so upstream calls stay roughly constant however many
-people have the terminal open. When an upstream is rate-limited the routes serve
-the last good data and the UI marks it as delayed.
+`/api/jupiter/order`, `/api/jupiter/tokens` and `/api/market/*`, and on `GET`
+requests to `/api/jupiter/trigger/*` (order history and vault). Leave
+`/api/jupiter/execute` and the Trigger calls that carry a signed transaction
+(`POST` to `deposit/craft`, `orders/*`, `cancel` and `confirm-cancel`) out of it:
+throttling those only hurts the user mid-order.
 
 ## Limit orders and DCA
 
@@ -101,6 +109,8 @@ Users see a one-time consent screen that says this before their first order.
 - Minimum $10 per order (per round for DCA). Expired orders do not refund
   automatically: they show a Withdraw button under Open orders.
 - DEGN DEX takes no fee on these orders (the Trigger API has no integrator fee).
+  Jupiter charges its own fee when an order fills (about 0.03-0.1% plus up to
+  0.5% routing, per Jupiter's docs).
 - The API is in beta. Do one end-to-end test with a small amount before relying
   on it. If something breaks, set `NEXT_PUBLIC_DISABLE_TRIGGER=1` and redeploy:
   new orders pause, but users can still see, cancel and withdraw what they have.
