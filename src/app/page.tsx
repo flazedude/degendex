@@ -70,7 +70,7 @@ export default function Home() {
             <h3 className="text-lg font-semibold">Pools &amp; Charts</h3>
             <p className="text-sm text-muted-foreground">
               Explore Raydium pools by TVL, volume and APR, and follow markets
-              on TradingView charts in the Trade terminal.
+              with on-chain price charts in the Trade terminal.
             </p>
           </div>
         </div>

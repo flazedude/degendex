@@ -104,6 +104,64 @@ describe("GET /api/jupiter/order", () => {
   });
 });
 
+describe("upstream 429 cooldown (shared with market data)", () => {
+  const routes = [
+    ["order", `http://x/api/jupiter/order?inputMint=${SOL}&outputMint=${USDC}&amount=1`, { outAmount: "1" }],
+    ["tokens", "http://x/api/jupiter/tokens?query=sol", [{ id: SOL, symbol: "SOL", decimals: 9 }]],
+  ] as const;
+
+  async function load(name: (typeof routes)[number][0]) {
+    const { GET } = name === "order" ? await import("./order/route") : await import("./tokens/route");
+    const { cooldownRemainingMs } = await import("@/lib/server/cache");
+    const { JUPITER_UPSTREAM } = await import("@/lib/markets/jupiter");
+    return { GET, cooldown: () => cooldownRemainingMs(JUPITER_UPSTREAM) };
+  }
+
+  for (const [name, url, okBody] of routes) {
+    it(`/${name}: a 429 starts the Jupiter cooldown for the upstream's reset window`, async () => {
+      const { GET, cooldown } = await load(name);
+      const reset = Math.floor(Date.now() / 1000) + 7;
+      fetchMock.mockResolvedValueOnce(
+        new Response("{}", { status: 429, headers: { "x-ratelimit-reset": String(reset) } })
+      );
+      const res = await GET(new NextRequest(url));
+      expect(res.status).toBe(429);
+      // reset is 6-7s away, so the cooldown matches the Retry-After we send.
+      expect(cooldown()).toBeGreaterThan(5000);
+      expect(cooldown()).toBeLessThanOrEqual(7000);
+    });
+
+    it(`/${name}: a 429 without rate-limit headers cools down for the 2s default`, async () => {
+      const { GET, cooldown } = await load(name);
+      fetchMock.mockResolvedValueOnce(json({ error: "slow down" }, 429));
+      expect((await GET(new NextRequest(url))).status).toBe(429);
+      expect(cooldown()).toBeGreaterThan(1000);
+      expect(cooldown()).toBeLessThanOrEqual(2000);
+    });
+
+    it(`/${name}: a 200 or another error leaves the cooldown alone`, async () => {
+      const { GET, cooldown } = await load(name);
+      fetchMock.mockResolvedValueOnce(json(okBody));
+      expect((await GET(new NextRequest(url))).status).toBe(200);
+      expect(cooldown()).toBe(0);
+      fetchMock.mockResolvedValueOnce(json({ error: "x" }, 500));
+      expect((await GET(new NextRequest(url))).status).toBe(502);
+      expect(cooldown()).toBe(0);
+    });
+
+    it(`/${name}: is not blocked by an active cooldown or a spent market budget`, async () => {
+      const { GET } = await load(name);
+      const { acquireUpstream, setCooldown } = await import("@/lib/server/cache");
+      const { JUPITER_UPSTREAM } = await import("@/lib/markets/jupiter");
+      setCooldown(JUPITER_UPSTREAM, 30);
+      expect(() => acquireUpstream(JUPITER_UPSTREAM, 10)).toThrow();
+      fetchMock.mockResolvedValueOnce(json(okBody));
+      expect((await GET(new NextRequest(url))).status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  }
+});
+
 describe("retryAfterSeconds", () => {
   const now = 1_700_000_000_000;
   const h = (init: Record<string, string>) => new Headers(init);

@@ -4,9 +4,9 @@ import { useCallback } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import BigNumber from "bignumber.js";
 import { SOL_MINT } from "@/lib/constants";
 import { fromBaseUnits } from "@/lib/amounts";
+import { sumTokenAccounts, type TokenHoldingMap } from "@/lib/markets/holdings";
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -18,13 +18,13 @@ const TOKEN_2022_PROGRAM_ID = new PublicKey(
 /** Root query key for every balance query; invalidate it after a swap. */
 export const BALANCES_KEY = "balances";
 
-/** mint -> raw amount (base units) summed over all of the owner's accounts. */
-type TokenBalanceMap = Record<string, string>;
+type Connection = ReturnType<typeof useConnection>["connection"];
 
-async function fetchTokenBalances(
-  connection: ReturnType<typeof useConnection>["connection"],
+/** Every Token and Token-2022 holding of `owner`, summed per mint, with decimals. */
+export async function fetchTokenHoldings(
+  connection: Connection,
   owner: PublicKey
-): Promise<TokenBalanceMap> {
+): Promise<TokenHoldingMap> {
   // One call per token program, shared by every mint we display: cheaper on a
   // rate-limited public RPC than a call per mint.
   const results = await Promise.all(
@@ -32,24 +32,33 @@ async function fetchTokenBalances(
       connection.getParsedTokenAccountsByOwner(owner, { programId })
     )
   );
-  const sums: Record<string, BigNumber> = {};
-  for (const { value } of results) {
-    for (const { account } of value) {
-      const data = account.data;
-      if (!("parsed" in data)) continue;
-      const info = (data.parsed as {
-        info?: { mint?: unknown; tokenAmount?: { amount?: unknown } };
-      }).info;
-      const mint = info?.mint;
-      const amount = info?.tokenAmount?.amount;
-      if (typeof mint !== "string" || typeof amount !== "string") continue;
-      if (!/^\d+$/.test(amount)) continue;
-      sums[mint] = (sums[mint] ?? new BigNumber(0)).plus(amount);
-    }
-  }
-  const out: TokenBalanceMap = {};
-  for (const [mint, sum] of Object.entries(sums)) out[mint] = sum.toFixed(0);
-  return out;
+  return sumTokenAccounts(results);
+}
+
+/**
+ * Query options for the owner's native SOL balance (lamports string). Shared by
+ * useTokenBalance and useWalletHoldings so they reuse one cached RPC call.
+ */
+export function solBalanceQueryOptions(connection: Connection, owner: string | undefined) {
+  return {
+    queryKey: [BALANCES_KEY, "sol", connection.rpcEndpoint, owner] as const,
+    queryFn: async () =>
+      String(await connection.getBalance(new PublicKey(owner!), "confirmed")),
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    retry: 1,
+  };
+}
+
+/** Query options for the owner's SPL holdings (both token programs), shared likewise. */
+export function splHoldingsQueryOptions(connection: Connection, owner: string | undefined) {
+  return {
+    queryKey: [BALANCES_KEY, "spl", connection.rpcEndpoint, owner] as const,
+    queryFn: () => fetchTokenHoldings(connection, new PublicKey(owner!)),
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    retry: 1,
+  };
 }
 
 export interface TokenBalance {
@@ -71,26 +80,16 @@ export function useTokenBalance(
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const owner = publicKey?.toBase58();
-  const endpoint = connection.rpcEndpoint;
   const isSol = token?.mint === SOL_MINT;
 
   const sol = useQuery({
-    queryKey: [BALANCES_KEY, "sol", endpoint, owner],
+    ...solBalanceQueryOptions(connection, owner),
     enabled: !!owner && isSol,
-    queryFn: async () =>
-      String(await connection.getBalance(new PublicKey(owner!), "confirmed")),
-    staleTime: 15_000,
-    refetchInterval: 60_000,
-    retry: 1,
   });
 
   const spl = useQuery({
-    queryKey: [BALANCES_KEY, "spl", endpoint, owner],
+    ...splHoldingsQueryOptions(connection, owner),
     enabled: !!owner && !!token && !isSol,
-    queryFn: () => fetchTokenBalances(connection, new PublicKey(owner!)),
-    staleTime: 15_000,
-    refetchInterval: 60_000,
-    retry: 1,
   });
 
   if (!owner || !token) {
@@ -99,7 +98,7 @@ export function useTokenBalance(
   const q = isSol ? sol : spl;
   let raw: string | undefined;
   if (isSol) raw = sol.data;
-  else if (spl.data) raw = spl.data[token.mint] ?? "0";
+  else if (spl.data) raw = spl.data[token.mint]?.raw ?? "0";
   return {
     raw,
     ui: raw !== undefined ? fromBaseUnits(raw, token.decimals) : undefined,
