@@ -26,7 +26,7 @@ describe("validateDepositTransaction on real craft responses", () => {
         user: fixture.wallet,
         inputMint: request.inputMint,
         outputMint: request.outputMint,
-        amount: String(BigInt(request.amount) - 1n),
+        amount: String(BigInt(request.amount) - BigInt(1)),
         receiverAddress: response.receiverAddress,
         inputTokenAccount: response.inputTokenAccount,
         vaultPubkey: fixture.vaultPubkey,
