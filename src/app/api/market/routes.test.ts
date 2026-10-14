@@ -142,7 +142,7 @@ describe("GET /api/markets", () => {
     const { GET } = await import("../markets/route");
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("public, s-maxage=10, stale-while-revalidate=40");
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=10, stale-while-revalidate=10");
     const body = await res.json();
     expect(body.stale).toBeUndefined();
     expect(body.updatedAt).toBe(NOW);
@@ -164,6 +164,27 @@ describe("GET /api/markets", () => {
     // Concurrent and repeat visitors within the TTL cost nothing upstream.
     await Promise.all([GET(), GET(), GET()]);
     expect(calls(PRICE) + calls(SEARCH)).toBe(2);
+  });
+
+  it("shortens s-maxage to what is left of the server TTL", async () => {
+    const { GET } = await import("../markets/route");
+    await GET();
+    vi.setSystemTime(NOW + 7_500);
+    const res = await GET();
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=3, stale-while-revalidate=3");
+    expect(calls(PRICE)).toBe(1);
+  });
+
+  it("serves the list with prices missing and stale: true when only stats are available", async () => {
+    handlers[PRICE] = () => json({}, 429);
+    const { GET } = await import("../markets/route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=5");
+    const body = await res.json();
+    expect(body.stale).toBe(true);
+    // Falls back to the stats' own price.
+    expect(body.markets.find((m: { mint: string }) => m.mint === SOL).priceUsd).toBe(107);
   });
 
   it("serves the last good data marked stale when Jupiter fails", async () => {
@@ -203,7 +224,8 @@ describe("GET /api/market/[mint]", () => {
     const { GET } = await import("./[mint]/route");
     const res = await GET(req(`/api/market/${SOL}`), ctx(SOL));
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toContain("s-maxage=15");
+    // Curated prices live 10s, so the header is shared for at most that long.
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=10, stale-while-revalidate=10");
     const body = await res.json();
     expect(body).toMatchObject({
       mint: SOL,
@@ -240,6 +262,43 @@ describe("GET /api/market/[mint]", () => {
     const trades = await import("./[mint]/trades/route");
     await trades.GET(req(`/api/market/${RANDOM}/trades`), ctx(RANDOM));
     expect(calls(`${GT}/networks/solana/tokens/${RANDOM}/pools`)).toBe(1);
+  });
+
+  it("fetches a non-curated mint's stats and price per mint, with the curated set riding along", async () => {
+    const { GET } = await import("./[mint]/route");
+    const res = await GET(req(`/api/market/${RANDOM}`), ctx(RANDOM));
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=15, stale-while-revalidate=15");
+    expect(calls(PRICE)).toBe(1);
+    expect(calls(SEARCH)).toBe(1);
+    const priceIds = new URL(fetchMock.mock.calls.find(([u]) => String(u).startsWith(PRICE))![0]).searchParams
+      .get("ids")!
+      .split(",");
+    expect(priceIds[0]).toBe(RANDOM);
+    expect(priceIds).toContain(SOL);
+    // The list and the curated header now cost nothing upstream.
+    const markets = await import("../markets/route");
+    expect((await (await markets.GET()).json()).stale).toBeUndefined();
+    await GET(req(`/api/market/${SOL}`), ctx(SOL));
+    expect(calls(PRICE)).toBe(1);
+    expect(calls(SEARCH)).toBe(1);
+  });
+
+  it("serves the header stale when only the price refresh fails", async () => {
+    const { GET } = await import("./[mint]/route");
+    await GET(req(`/api/market/${RANDOM}`), ctx(RANDOM));
+    vi.setSystemTime(NOW + 16_000);
+    handlers[PRICE] = () => json({}, 500);
+    const res = await GET(req(`/api/market/${RANDOM}`), ctx(RANDOM));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=5");
+    expect(await res.json()).toMatchObject({ priceUsd: 0.5, stale: true });
+  });
+
+  it("returns 503 when a non-curated mint's stats cannot be fetched", async () => {
+    handlers[SEARCH] = () => json({}, 502);
+    const { GET } = await import("./[mint]/route");
+    const res = await GET(req(`/api/market/${RANDOM}`), ctx(RANDOM));
+    expect(res.status).toBe(503);
   });
 
   it("returns 404 for a mint Jupiter does not know", async () => {
@@ -298,20 +357,80 @@ describe("GET /api/market/prices", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("serves curated mints from the list batch and others from one extra call", async () => {
+  it("fetches every requested mint in one call and caches each mint for the list", async () => {
     const { GET } = await import("./prices/route");
     const res = await GET(req(`/api/market/prices?ids=${SOL},${RANDOM},${JUP}`));
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toContain("s-maxage=15");
+    // SOL and JUP are curated (10s), so the response is shared for 10s at most.
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=10, stale-while-revalidate=10");
     const body = await res.json();
+    expect(body.stale).toBeUndefined();
     expect(body.prices).toEqual({
       [SOL]: { usdPrice: 107.5, change24hPct: -1.2 },
       [RANDOM]: { usdPrice: 0.5, change24hPct: 3 },
       [JUP]: { usdPrice: 1, change24hPct: null },
     });
-    expect(calls(PRICE)).toBe(2);
+    expect(calls(PRICE)).toBe(1);
+    // The rest of the curated set rode along, so the list needs no price call.
     const markets = await import("../markets/route");
     await markets.GET();
+    expect(calls(PRICE)).toBe(1);
+  });
+
+  it("shares per-mint entries between wallets and fetches only the missing mints", async () => {
+    const { GET } = await import("./prices/route");
+    const OTHER = RANDOM_POOL; // any valid pubkey
+    await GET(req(`/api/market/prices?ids=${USDC},${RANDOM}`));
+    expect(calls(PRICE)).toBe(1);
+    // A second wallet: USDC is cached and the curated set rode along, so only OTHER is fetched.
+    const res = await GET(req(`/api/market/prices?ids=${OTHER},${USDC}`));
     expect(calls(PRICE)).toBe(2);
+    const ids = new URL(fetchMock.mock.calls.filter(([u]) => String(u).startsWith(PRICE))[1][0]).searchParams.get(
+      "ids"
+    );
+    expect(ids).toBe(OTHER);
+    expect(Object.keys((await res.json()).prices).sort()).toEqual([OTHER, USDC].sort());
+    // A third request already fully cached costs nothing.
+    await GET(req(`/api/market/prices?ids=${RANDOM},${OTHER}`));
+    expect(calls(PRICE)).toBe(2);
+  });
+
+  it("returns what is available with stale: true when the missing mints cannot be fetched", async () => {
+    const { GET } = await import("./prices/route");
+    await GET(req(`/api/market/prices?ids=${SOL}`));
+    handlers[PRICE] = () => json({}, 429);
+    const res = await GET(req(`/api/market/prices?ids=${SOL},${RANDOM}`));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=5");
+    const body = await res.json();
+    expect(body.stale).toBe(true);
+    // SOL is still fresh; RANDOM is simply absent.
+    expect(body.prices).toEqual({ [SOL]: { usdPrice: 107.5, change24hPct: -1.2 } });
+  });
+
+  it("returns 503 with Retry-After when none of the mints is available", async () => {
+    handlers[PRICE] = () => new Response("{}", { status: 429, headers: { "retry-after": "9" } });
+    const { GET } = await import("./prices/route");
+    const res = await GET(req(`/api/market/prices?ids=${RANDOM}`));
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("9");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves an empty, non-stale result for mints Jupiter has no price for", async () => {
+    handlers[PRICE] = () => json({});
+    const { GET } = await import("./prices/route");
+    const body = await (await GET(req(`/api/market/prices?ids=${RANDOM}`))).json();
+    expect(body.prices).toEqual({});
+    expect(body.stale).toBeUndefined();
+  });
+});
+
+describe("Jupiter market-data budget", () => {
+  it("allows 40 calls/min with a key and 10 keyless", async () => {
+    const { jupiterBudgetPerMinute } = await import("@/lib/markets/jupiter");
+    expect(jupiterBudgetPerMinute()).toBe(40);
+    vi.stubEnv("JUPITER_API_KEY", "");
+    expect(jupiterBudgetPerMinute()).toBe(10);
   });
 });

@@ -20,11 +20,16 @@ export const JUPITER_UPSTREAM = "jupiter";
 
 /**
  * Calls per minute market data may spend from the org-wide Jupiter bucket,
- * leaving headroom for swaps (/order). Keyless is 30/min in total; a key
- * gets at least 60/min.
+ * leaving the rest for user-driven calls (/order quotes, token search and
+ * metadata, Trigger). With a key (Free plan: 60/min) market data takes up to
+ * 40; keyless (about 30/min in total, shared per IP) only 10, which covers the
+ * curated feed (about 7/min) plus a little long-tail traffic. The budget is
+ * counted per server instance.
  */
+export const JUPITER_MARKET_BUDGET = { withKey: 40, keyless: 10 } as const;
+
 export function jupiterBudgetPerMinute(): number {
-  return process.env.JUPITER_API_KEY?.trim() ? 40 : 15;
+  return process.env.JUPITER_API_KEY?.trim() ? JUPITER_MARKET_BUDGET.withKey : JUPITER_MARKET_BUDGET.keyless;
 }
 
 export interface JupiterPrice {

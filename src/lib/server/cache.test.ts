@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireUpstream,
   cached,
+  cachedMany,
   cooldownRemainingMs,
   peek,
   resetServerCache,
@@ -57,7 +58,7 @@ describe("cached", () => {
     const fetchedAt = Date.now();
     vi.advanceTimersByTime(5_000);
     const res = await cached("k", async () => Promise.reject(new Error("down")), { ttlMs: 1000 });
-    expect(res).toEqual({ value: "good", stale: true, fetchedAt });
+    expect(res).toEqual({ value: "good", stale: true, fetchedAt, expiresAt: fetchedAt + 1000 });
   });
 
   it("rethrows once the last good value is older than maxStaleMs", async () => {
@@ -93,6 +94,135 @@ describe("cached", () => {
     const kept = vi.fn().mockResolvedValue(-1);
     expect((await cached("k999", kept, { ttlMs: 3_600_000 })).value).toBe(999);
     expect(kept).not.toHaveBeenCalled();
+  });
+});
+
+describe("cachedMany", () => {
+  const key = (id: string) => `m:${id}`;
+  const ttl = { ttlMs: () => 10_000 };
+  /** A fetcher that answers `id -> id.toUpperCase()` for every id except "none". */
+  const upper = () =>
+    vi.fn(async (ids: string[]) =>
+      Object.fromEntries(ids.filter((id) => id !== "none").map((id) => [id, id.toUpperCase()]))
+    );
+  const values = (r: { results: Map<string, { value: unknown }> }) =>
+    Object.fromEntries([...r.results].map(([id, v]) => [id, v.value]));
+
+  it("fetches only the missing ids, in one call, and caches each id separately", async () => {
+    const fetcher = upper();
+    const first = await cachedMany(["a", "b"], key, fetcher, ttl);
+    expect(values(first)).toEqual({ a: "A", b: "B" });
+    expect(first.error).toBeUndefined();
+    const second = await cachedMany(["b", "c", "c"], key, fetcher, ttl);
+    expect(values(second)).toEqual({ b: "B", c: "C" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1][0]).toEqual(["c"]);
+    // Shares entries with differently shaped requests: no call at all.
+    await cachedMany(["c", "a"], key, fetcher, ttl);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches ids the upstream omits as null, with a per-value TTL", async () => {
+    const fetcher = upper();
+    const opts = { ttlMs: (v: string | null) => (v ? 60_000 : 1_000) };
+    const res = await cachedMany(["a", "none"], key, fetcher, opts);
+    expect(values(res)).toEqual({ a: "A", none: null });
+    expect(res.results.get("none")?.expiresAt).toBe(Date.now() + 1_000);
+    vi.advanceTimersByTime(1_000);
+    await cachedMany(["a", "none"], key, fetcher, opts);
+    expect(fetcher.mock.calls[1][0]).toEqual(["none"]);
+  });
+
+  it("on failure serves recent ids stale, leaves the rest out and reports the error", async () => {
+    await cachedMany(["a"], key, upper(), ttl);
+    const fetchedAt = Date.now();
+    vi.advanceTimersByTime(20_000);
+    const down = vi.fn(async () => Promise.reject(new UpstreamError("down", 503, 7)));
+    const res = await cachedMany(["a", "b"], key, down, ttl);
+    expect(down).toHaveBeenCalledTimes(1);
+    expect(res.results.get("a")).toEqual({ value: "A", stale: true, fetchedAt, expiresAt: fetchedAt + 10_000 });
+    expect(res.results.has("b")).toBe(false);
+    expect((res.error as UpstreamError).retryAfterS).toBe(7);
+  });
+
+  it("sets error when every id was served stale", async () => {
+    await cachedMany(["a"], key, upper(), ttl);
+    vi.advanceTimersByTime(20_000);
+    const res = await cachedMany(["a"], key, async () => Promise.reject(new Error("x")), ttl);
+    expect(res.results.get("a")?.stale).toBe(true);
+    expect(res.error).toBeDefined();
+  });
+
+  it("treats a synchronous fetcher throw like a failed fetch", async () => {
+    const res = await cachedMany(
+      ["a"],
+      key,
+      () => {
+        throw new Error("sync");
+      },
+      ttl
+    );
+    expect(res.results.size).toBe(0);
+    expect((res.error as Error).message).toBe("sync");
+  });
+
+  it("shares in-flight ids between concurrent requests (single-flight)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetcher = vi.fn(async (ids: string[]) => {
+      await gate;
+      return Object.fromEntries(ids.map((id) => [id, id.toUpperCase()]));
+    });
+    const reqs = [
+      cachedMany(["a", "b"], key, fetcher, ttl),
+      cachedMany(["a", "b"], key, fetcher, ttl),
+      cachedMany(["b", "c"], key, fetcher, ttl),
+    ];
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map((c) => c[0])).toEqual([["a", "b"], ["c"]]);
+    release();
+    const [r1, r2, r3] = await Promise.all(reqs);
+    expect(values(r1)).toEqual({ a: "A", b: "B" });
+    expect(values(r2)).toEqual({ a: "A", b: "B" });
+    expect(values(r3)).toEqual({ b: "B", c: "C" });
+  });
+
+  it("refreshes aging requested ids and due companions only when a call is made anyway", async () => {
+    const fetcher = upper();
+    const opts = { ...ttl, companions: ["x", "y"] };
+    // No call needed: companions are not fetched on their own.
+    await cachedMany(["a"], key, fetcher, ttl);
+    await cachedMany(["a"], key, fetcher, opts);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(6_000); // "a" is fresh but past half its TTL
+    const res = await cachedMany(["a", "b"], key, fetcher, opts);
+    expect(fetcher.mock.calls[1][0]).toEqual(["b", "a", "x", "y"]);
+    // Companions are cached but not returned.
+    expect([...res.results.keys()].sort()).toEqual(["a", "b"]);
+    await cachedMany(["x", "y"], key, fetcher, ttl);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a fresh value fresh when a ride-along refresh fails", async () => {
+    await cachedMany(["a"], key, upper(), ttl);
+    vi.advanceTimersByTime(6_000);
+    const down = vi.fn<(ids: string[]) => Promise<Record<string, string>>>(async () =>
+      Promise.reject(new Error("down"))
+    );
+    const res = await cachedMany(["a", "b"], key, down, ttl);
+    expect(down.mock.calls[0][0]).toEqual(["b", "a"]);
+    expect(res.results.get("a")?.stale).toBe(false);
+    expect(res.results.has("b")).toBe(false);
+  });
+
+  it("trims ride-along ids to maxBatch but never the missing ones", async () => {
+    const fetcher = upper();
+    await cachedMany(["a", "b", "c"], key, fetcher, { ...ttl, maxBatch: 2, companions: ["x", "y"] });
+    expect(fetcher.mock.calls[0][0]).toEqual(["a", "b", "c"]);
+    vi.advanceTimersByTime(10_000);
+    await cachedMany(["a"], key, fetcher, { ...ttl, maxBatch: 2, companions: ["x", "y"] });
+    expect(fetcher.mock.calls[1][0]).toEqual(["a", "x"]);
   });
 });
 

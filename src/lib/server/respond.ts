@@ -4,23 +4,33 @@ import { jsonResponse } from "@/lib/jupiter/server";
 import { UpstreamError } from "./cache";
 
 /**
- * CDN Cache-Control for a cached payload. Fresh data may be shared for the
- * server TTL plus a few multiples of stale-while-revalidate. Stale data (the
- * upstream failed) is only shared briefly so recovery shows up quickly.
+ * CDN Cache-Control for a cached payload. `remainingSeconds` is how long the
+ * server copy stays fresh (default: the full TTL): the CDN may share it only
+ * for that long, plus as long again while it revalidates, so a CDN copy is at
+ * most about two TTLs old. Stale data (the upstream failed, or the copy has
+ * outlived its TTL) is only shared briefly so recovery shows up quickly.
  */
-export function cacheControl(ttlSeconds: number, stale = false): string {
-  if (stale) return `public, s-maxage=${Math.min(ttlSeconds, 5)}`;
-  return `public, s-maxage=${ttlSeconds}, stale-while-revalidate=${ttlSeconds * 4}`;
+export function cacheControl(ttlSeconds: number, stale = false, remainingSeconds = ttlSeconds): string {
+  if (stale || remainingSeconds <= 0) return `public, s-maxage=${Math.max(1, Math.min(ttlSeconds, 5))}`;
+  const maxAge = Math.max(1, Math.min(ttlSeconds, Math.ceil(remainingSeconds)));
+  return `public, s-maxage=${maxAge}, stale-while-revalidate=${maxAge}`;
 }
 
-/** 200 with the payload; `stale: true` is added to the body only when stale. */
+/**
+ * 200 with the payload; `stale: true` is added to the body only when stale.
+ * `expiresAt` (epoch ms when the server copy stops being fresh) shortens the
+ * CDN lifetime to what is left of the TTL.
+ */
 export function cachedJson<T extends object>(
   body: T,
   ttlSeconds: number,
-  stale: boolean
+  stale: boolean,
+  expiresAt?: number,
+  nowMs = Date.now()
 ): NextResponse {
   const payload = stale ? { ...body, stale: true } : body;
-  return jsonResponse(payload, 200, cacheControl(ttlSeconds, stale));
+  const remaining = expiresAt === undefined ? ttlSeconds : (expiresAt - nowMs) / 1000;
+  return jsonResponse(payload, 200, cacheControl(ttlSeconds, stale, remaining));
 }
 
 export function badRequest(error: string): NextResponse {

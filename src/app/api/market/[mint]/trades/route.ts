@@ -10,8 +10,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ min
   const { mint } = await params;
   if (!isValidPubkey(mint)) return badRequest("Invalid mint");
   try {
-    const { data, stale } = await getMarketTrades(mint);
-    return cachedJson(data, TTL.trades, stale);
+    const { data, stale, expiresAt } = await getMarketTrades(mint);
+    return cachedJson(data, TTL.trades, stale, expiresAt);
   } catch (err) {
     return failureResponse(err, 60, "Trades");
   }

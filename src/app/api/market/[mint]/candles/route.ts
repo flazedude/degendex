@@ -16,8 +16,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mint
     return badRequest("tf must be one of 1m, 5m, 15m, 1h, 4h, 1d");
   }
   try {
-    const { data, stale } = await getMarketCandles(mint, tf);
-    return cachedJson(data, TTL.candles, stale);
+    const { data, stale, expiresAt } = await getMarketCandles(mint, tf);
+    return cachedJson(data, TTL.candles, stale, expiresAt);
   } catch (err) {
     return failureResponse(err, 60, "Chart data");
   }
