@@ -13,17 +13,16 @@ import { useTokenMetadata } from "@/hooks/useTokenMetadata";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
 import { useWalletHoldings } from "@/hooks/useWalletHoldings";
 import { cn, shortenAddress } from "@/lib/utils";
+import { useTerminalUiStore, type BottomTabId } from "@/store/useTerminalUiStore";
+import { OpenOrdersTable, OrderHistoryTable, useOpenOrdersBadge } from "./trigger";
 import { buildBalanceRows, totalValueUsd, type BalanceRow } from "./balanceRows";
 import { formatPct, formatUsdPrice, formatUsdValue } from "./tradesFormat";
 
-const TABS = [
+const TABS: { id: BottomTabId; label: string }[] = [
   { id: "balances", label: "Balances" },
   { id: "open", label: "Open orders" },
   { id: "history", label: "Order history" },
-] as const;
-type TabId = (typeof TABS)[number]["id"];
-
-const COMING_NEXT = "Limit orders and DCA are coming next";
+];
 const GRID =
   "grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_3.5rem] items-center gap-x-3";
 
@@ -230,9 +229,30 @@ function Balances({ mint }: { mint: string }) {
   );
 }
 
-/** Account panel under the chart: wallet balances, plus order tabs for what comes next. */
+/** Count badge (and a warning dot when funds wait for a withdraw) for Open orders. */
+function OpenOrdersBadge() {
+  const { count, needsWithdraw } = useOpenOrdersBadge();
+  if (count === 0) return null;
+  return (
+    <span className="ml-1 inline-flex items-center gap-0.5 align-middle">
+      <span className="border border-border/60 px-1 font-mono text-[9px] leading-3.5 text-muted-foreground">
+        {count}
+      </span>
+      {needsWithdraw && (
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-yellow-500"
+          title="Funds waiting for a withdraw"
+          aria-label="Funds waiting for a withdraw"
+        />
+      )}
+    </span>
+  );
+}
+
+/** Account panel under the chart: wallet balances, open limit/DCA orders and their history. */
 export function BottomPanel({ mint }: { mint: string }) {
-  const [tab, setTab] = useState<TabId>("balances");
+  const tab = useTerminalUiStore((s) => s.bottomTab);
+  const setTab = useTerminalUiStore((s) => s.setBottomTab);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card/30">
@@ -254,6 +274,7 @@ export function BottomPanel({ mint }: { mint: string }) {
             )}
           >
             {t.label}
+            {t.id === "open" && <OpenOrdersBadge />}
           </button>
         ))}
       </div>
@@ -265,10 +286,10 @@ export function BottomPanel({ mint }: { mint: string }) {
       >
         {tab === "balances" ? (
           <Balances mint={mint} />
+        ) : tab === "open" ? (
+          <OpenOrdersTable />
         ) : (
-          <Centered>
-            <p className="text-[11px] text-muted-foreground">{COMING_NEXT}</p>
-          </Centered>
+          <OrderHistoryTable />
         )}
       </div>
     </div>

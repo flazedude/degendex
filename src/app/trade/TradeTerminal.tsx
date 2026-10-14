@@ -14,6 +14,8 @@ import { MarketSelector } from "@/components/trade/MarketSelector";
 import { TradePanel } from "@/components/trade/TradePanel";
 import { TradesPanel } from "@/components/trade/TradesPanel";
 import { BottomPanel } from "@/components/trade/BottomPanel";
+import { WithdrawBanner } from "@/components/trade/trigger";
+import { ACCOUNT_PANEL_ID } from "@/store/useTerminalUiStore";
 import { baseTokenKey, resolveBaseToken, selectedMintFromParam } from "./baseToken";
 
 // lightweight-charts touches the DOM on import: client only.
@@ -92,6 +94,9 @@ export function TradeTerminal() {
         </div>
       </div>
 
+      {/* Funds waiting in the Jupiter vault (renders nothing otherwise). */}
+      <WithdrawBanner />
+
       {/*
         One instance of each panel. Below lg the two column wrappers are
         `display: contents`, so `order-*` stacks: chart, order form, trades,
@@ -106,7 +111,7 @@ export function TradeTerminal() {
           <section aria-label="Price chart" className="order-1 h-[55vh] min-h-[320px] lg:order-none lg:h-auto lg:min-h-0 lg:flex-1">
             <PriceChart mint={mint} />
           </section>
-          <section aria-label="Balances and orders" className="order-4 min-h-64 border-t border-border/50 lg:order-none lg:h-60 lg:min-h-0 lg:shrink-0 lg:overflow-hidden">
+          <section id={ACCOUNT_PANEL_ID} aria-label="Balances and orders" className="order-4 min-h-64 border-t border-border/50 lg:order-none lg:h-60 lg:min-h-0 lg:shrink-0 lg:overflow-hidden">
             <BottomPanel mint={mint} />
           </section>
         </div>
