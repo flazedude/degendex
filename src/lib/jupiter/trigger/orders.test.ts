@@ -6,11 +6,14 @@ import {
   buildCreateDcaBody,
   buildCreatePriceBody,
   extractUsdPrice,
+  MAX_PRICE_AGE_MS,
   isDepositCacheMiss,
+  isNearMinimum,
   isWithdrawalCacheMiss,
   parseCraftResponse,
   planDca,
   planLimitOrder,
+  readUsdPrice,
 } from "./orders";
 
 const SOL: TokenInfo = { mint: "So11111111111111111111111111111111111111112", symbol: "SOL", decimals: 9 };
@@ -207,5 +210,52 @@ describe("helpers", () => {
     expect(isDepositCacheMiss("Deposit transaction not found in cache. Please craft a new deposit first.")).toBe(true);
     expect(isDepositCacheMiss("Order must be at least 10 USD")).toBe(false);
     expect(isWithdrawalCacheMiss("Withdrawal transaction not found in cache. Please initiate cancel again.")).toBe(true);
+  });
+});
+
+describe("readUsdPrice (side-of-market check)", () => {
+  const body = (over: Record<string, unknown> = {}) => ({
+    prices: { [SOL.mint]: { usdPrice: 150, change24hPct: 1 } },
+    updatedAt: NOW - 5_000,
+    ...over,
+  });
+
+  it("tells a live price from a delayed or old one", () => {
+    expect(readUsdPrice(body(), SOL.mint, NOW)).toEqual({ kind: "fresh", price: 150 });
+    expect(readUsdPrice(body({ stale: true }), SOL.mint, NOW)).toEqual({ kind: "stale", price: 150 });
+    expect(readUsdPrice(body({ updatedAt: NOW - MAX_PRICE_AGE_MS - 1 }), SOL.mint, NOW)).toEqual({
+      kind: "stale",
+      price: 150,
+    });
+    expect(MAX_PRICE_AGE_MS).toBe(120_000);
+  });
+
+  it("reports a missing price", () => {
+    expect(readUsdPrice(body(), USDC_MINT, NOW)).toEqual({ kind: "missing" });
+    expect(readUsdPrice(null, SOL.mint, NOW)).toEqual({ kind: "missing" });
+    expect(readUsdPrice({ stale: true }, SOL.mint, NOW)).toEqual({ kind: "missing" });
+  });
+});
+
+describe("USDC valued at its live price ($10 minimum)", () => {
+  const input = { base: SOL, side: "buy" as const, payAmountUi: "10", triggerPriceUsd: 140, expiresInMs: DAY };
+
+  it("rejects 10 USDC when USDC trades just under $1", () => {
+    expect(planLimitOrder(input, { basePriceUsd: 150, usdcPriceUsd: 0.9997, nowMs: NOW })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/Minimum order is \$10/),
+    });
+    expect(planLimitOrder(input, { basePriceUsd: 150, usdcPriceUsd: null, nowMs: NOW }).ok).toBe(true);
+    expect(planLimitOrder({ ...input, payAmountUi: "10.01" }, { basePriceUsd: 150, usdcPriceUsd: 0.9997, nowMs: NOW }).ok).toBe(
+      true
+    );
+  });
+
+  it("flags amounts within 2% above the minimum", () => {
+    expect(isNearMinimum(null, 10)).toBe(false);
+    expect(isNearMinimum(9.99, 10)).toBe(false);
+    expect(isNearMinimum(10, 10)).toBe(true);
+    expect(isNearMinimum(10.19, 10)).toBe(true);
+    expect(isNearMinimum(10.2, 10)).toBe(false);
   });
 });

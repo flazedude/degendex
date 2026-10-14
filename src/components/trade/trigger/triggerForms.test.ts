@@ -80,6 +80,10 @@ describe("parsing and pair helpers", () => {
   it("values what is paid", () => {
     expect(payUsd("buy", "25", null)).toBe(25);
     expect(payUsd("sell", "2", 150)).toBe(300);
+    // Buys pay USDC, valued at its live price when known.
+    expect(payUsd("buy", "10", null, 0.999)).toBeCloseTo(9.99);
+    expect(payUsd("buy", "10", null, null)).toBe(10);
+    expect(payUsd("buy", "10", null, 0)).toBe(10);
     expect(payUsd("sell", "2", null)).toBeNull();
   });
 
@@ -203,5 +207,34 @@ describe("dcaFormView", () => {
     expect(v.intervalSeconds).toBe(21_600);
     expect(v.durationSeconds).toBe(4 * 21_600);
     expect(v.perRound).toBe("20");
+  });
+});
+
+describe("near the $10 minimum", () => {
+  it("limit: blocks 10 USDC below the peg and nudges just above the minimum", () => {
+    const below = limitFormView(limit({ payAmount: "10", usdcPriceUsd: 0.9997 }));
+    expect(below.belowMinimum).toBe(true);
+    expect(below.blocker).toMatch(/Minimum/);
+    const near = limitFormView(limit({ payAmount: "10.1", usdcPriceUsd: 0.9997 }));
+    expect(near.belowMinimum).toBe(false);
+    expect(near.nearMinimum).toBe(true);
+    expect(limitFormView(limit({ payAmount: "25" })).nearMinimum).toBe(false);
+  });
+
+  it("dca: nudges when each round only just clears the minimum", () => {
+    expect(dcaFormView(dca({ totalAmount: "20.2", orderCount: "2" })).nearMinimum).toBe(true);
+    expect(dcaFormView(dca({ totalAmount: "100", orderCount: "2" })).nearMinimum).toBe(false);
+  });
+});
+
+describe("delayed market price", () => {
+  it("does not block on a side-of-market verdict from a delayed price (the hook re-checks live)", () => {
+    // Buy trigger above the delayed price: blocked when live, not when delayed.
+    expect(limitFormView(limit({ triggerPrice: "155" })).blocker).toMatch(/must be below/);
+    const delayed = limitFormView(limit({ triggerPrice: "155", marketStale: true }));
+    expect(delayed.blocker).toBeNull();
+    expect(delayed.warnings.join(" ")).toMatch(/delayed/);
+    // Other checks still apply.
+    expect(limitFormView(limit({ payAmount: "5", marketStale: true })).blocker).toMatch(/Minimum/);
   });
 });

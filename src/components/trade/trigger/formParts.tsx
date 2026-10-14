@@ -220,6 +220,7 @@ export function SubmitButton({
   busyLabel,
   busy,
   otherBusy,
+  otherBusyReason,
   onClick,
 }: {
   side: OrderSide;
@@ -228,24 +229,30 @@ export function SubmitButton({
   busyLabel: string;
   /** This form's action is running. */
   busy: boolean;
-  /** Another order action is running. */
+  /** Another order action is running (or new orders are on hold). */
   otherBusy: boolean;
+  /** Why, e.g. "Finish the withdrawal first". */
+  otherBusyReason?: string | null;
   onClick: () => void;
 }) {
-  const longBlocker = blocker && !isShortReason(blocker) ? blocker : null;
+  const reason = otherBusy ? (otherBusyReason ?? "Another order action is running") : null;
+  const longReason = reason && !isShortReason(reason) ? reason : null;
+  const longBlocker = !reason && blocker && !isShortReason(blocker) ? blocker : null;
   const text = busy
     ? busyLabel
-    : otherBusy
-      ? "Another order action is running"
+    : reason
+      ? longReason
+        ? "Please wait"
+        : reason
       : blocker && !longBlocker
         ? blocker
         : label;
   const disabled = busy || otherBusy || !!blocker;
   return (
     <div className="space-y-1">
-      {longBlocker && !busy && (
+      {(longReason ?? longBlocker) && !busy && (
         <p className="text-[10px] leading-snug text-yellow-500" role="status">
-          {longBlocker}
+          {longReason ?? longBlocker}
         </p>
       )}
       <Button

@@ -5,11 +5,14 @@ import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useArmedConfirm } from "@/components/swap/useArmedConfirm";
 import { useTriggerActions } from "@/hooks/useTriggerActions";
 import { useTriggerOrderHistory } from "@/hooks/useTriggerOrders";
-import type { TriggerFamily } from "@/lib/jupiter/trigger/types";
+import type { TriggerFamily, TriggerOrderRow } from "@/lib/jupiter/trigger/types";
+import type { TokenInfo } from "@/lib/tokens/types";
 import { cn } from "@/lib/utils";
 import { TriggerGate } from "./TriggerConsentDialog";
 import {
+  CardLine,
   EventLinks,
+  OrderCard,
   PairCell,
   RowActions,
   StatusChip,
@@ -23,7 +26,9 @@ import {
   fillPercentText,
   formatBaseAmount,
   formatDateTime,
+  outputNotPaidOut,
   pageRangeText,
+  paidSummary,
   rowKey,
   tokenFor,
 } from "./triggerFormat";
@@ -36,6 +41,59 @@ const FAMILIES: { id: TriggerFamily; label: string }[] = [
 
 const GRID =
   "grid grid-cols-[4.5rem_minmax(0,0.9fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_2.75rem_minmax(0,1fr)_6.5rem_minmax(0,1.3fr)_4.75rem] items-center gap-x-3";
+
+/**
+ * What the order actually spent: "Paid X" plus the part of the deposit that
+ * went back (or waits in the vault). Only the deposit when Jupiter does not
+ * report the amount spent.
+ */
+function PaidCell({ row, token }: { row: TriggerOrderRow; token?: TokenInfo }) {
+  const s = paidSummary(row);
+  const deposited = formatBaseAmount(s.deposited, token);
+  if (s.paid === null) {
+    return (
+      <span
+        className="truncate font-mono tabular-nums text-muted-foreground"
+        title={`Deposited ${deposited}. Jupiter did not report how much of it was spent.`}
+      >
+        {deposited} <span className="text-[10px]">deposited</span>
+      </span>
+    );
+  }
+  const paid = formatBaseAmount(s.paid, token);
+  const remainder = s.remainder !== null ? formatBaseAmount(s.remainder, token, { withSymbol: false }) : null;
+  return (
+    <span
+      className="truncate font-mono tabular-nums"
+      title={`Deposited ${deposited} · paid ${paid}${remainder ? ` · ${remainder} ${s.remainderLabel}` : ""}`}
+    >
+      {paid}
+      {remainder && (
+        <span className={cn("text-muted-foreground", s.remainderLabel !== "refunded" && "text-yellow-500")}>
+          {" "}
+          · {s.remainderLabel} {remainder}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Output received; marked "owed" when Jupiter's payout failed. */
+function ReceivedCell({ row, token }: { row: TriggerOrderRow; token?: TokenInfo }) {
+  if (row.outputAmountReceived === null) return <span className="text-muted-foreground">—</span>;
+  const text = formatBaseAmount(row.outputAmountReceived, token);
+  if (outputNotPaidOut(row)) {
+    return (
+      <span
+        className="truncate font-mono tabular-nums text-yellow-500"
+        title="Jupiter reports the payout of this amount failed: it may still be held in your Jupiter vault"
+      >
+        {text} owed
+      </span>
+    );
+  }
+  return <span className="truncate font-mono tabular-nums">{text}</span>;
+}
 
 function HistoryRows({ family }: { family: TriggerFamily }) {
   const [offset, setOffset] = useState(0);
@@ -52,6 +110,8 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
   const rows = history.rows;
 
   let body: React.ReactNode;
+  // Small screens; the same as `body` unless there are rows to show.
+  let cards: React.ReactNode = null;
   if (history.isLoading) body = <TableSkeleton />;
   else if (history.error && rows.length === 0) {
     body = (
@@ -74,16 +134,16 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
               className={cn(
                 GRID,
                 "border-l-2 px-3 py-1 text-[11px]",
-                r.canWithdraw ? "border-l-yellow-500 bg-yellow-500/5" : "border-l-transparent"
+                r.canWithdraw || r.fundsMayBeHeld ? "border-l-yellow-500 bg-yellow-500/5" : "border-l-transparent"
               )}
             >
               <TypeCell row={r} />
               <PairCell row={r} metadata={metadata} />
-              <span className="truncate text-right font-mono tabular-nums">
-                {formatBaseAmount(r.inputAmountInitial, inTok)}
+              <span className="min-w-0 truncate text-right">
+                <PaidCell row={r} token={inTok} />
               </span>
-              <span className="truncate text-right font-mono tabular-nums">
-                {r.outputAmountReceived !== null ? formatBaseAmount(r.outputAmountReceived, outTok) : "—"}
+              <span className="min-w-0 truncate text-right">
+                <ReceivedCell row={r} token={outTok} />
               </span>
               <span className="text-right">
                 <TriggerCell row={r} />
@@ -99,13 +159,45 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
                 <EventLinks row={r} />
               </span>
               <span className="flex justify-end">
-                {r.canWithdraw ? (
-                  <RowActions row={r} actions={actions} confirm={confirm} />
-                ) : (
-                  <span className="text-[10px] text-muted-foreground">—</span>
-                )}
+                <RowActions row={r} actions={actions} confirm={confirm} />
               </span>
             </div>
+          );
+        })}
+      </div>
+    );
+    // Below sm: stacked cards with status and action on the first line.
+    cards = (
+      <div role="list" aria-label="Order history" className={cn(history.isFetching && "opacity-70")}>
+        {rows.map((r) => {
+          const inTok = tokenFor(r.inputMint, metadata);
+          const outTok = tokenFor(r.outputMint, metadata);
+          return (
+            <OrderCard
+              key={rowKey(r)}
+              row={r}
+              metadata={metadata}
+              action={<RowActions row={r} actions={actions} confirm={confirm} />}
+            >
+              <CardLine label="Paid">
+                <PaidCell row={r} token={inTok} />
+              </CardLine>
+              <CardLine label="Received">
+                <ReceivedCell row={r} token={outTok} />
+              </CardLine>
+              <CardLine label={r.family === "price" ? "Trigger" : "Rounds"}>
+                <TriggerCell row={r} />
+              </CardLine>
+              <CardLine label="Filled">
+                <span className="font-mono tabular-nums">{fillPercentText(r)}</span>
+              </CardLine>
+              <CardLine label="Updated">
+                <span className="font-mono tabular-nums">{formatDateTime(r.updatedAt || r.createdAt)}</span>
+              </CardLine>
+              <CardLine label="Transactions">
+                <EventLinks row={r} />
+              </CardLine>
+            </OrderCard>
           );
         })}
       </div>
@@ -116,7 +208,8 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
   const canNext = history.hasMore;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-x-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto sm:hidden">{cards ?? body}</div>
+      <div className="hidden min-h-0 flex-1 overflow-x-auto sm:block">
         <div className="min-w-[900px]">
           <div
             className={cn(

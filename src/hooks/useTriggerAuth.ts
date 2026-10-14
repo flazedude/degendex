@@ -6,7 +6,7 @@ import type { VersionedTransaction } from "@solana/web3.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { signInToTrigger, TriggerSignInError } from "@/lib/jupiter/trigger/auth";
 import { isTriggerApiError, triggerClient } from "@/lib/jupiter/trigger/client";
-import { TRIGGER_ENABLED } from "@/lib/jupiter/trigger/config";
+import { MANAGE_ENABLED, NEW_ORDERS_ENABLED, TRIGGER_MODE, type TriggerMode } from "@/lib/jupiter/trigger/config";
 import { refreshTokenStorage } from "@/lib/jupiter/trigger/tokenStorage";
 import type { TriggerChallengeType, TriggerVault } from "@/lib/jupiter/trigger/types";
 import {
@@ -18,8 +18,15 @@ import {
 export type TriggerAuthStatus = "signed-out" | "signing-in" | "ready" | "error";
 
 export interface UseTriggerAuthResult {
-  /** Feature kill switch (NEXT_PUBLIC_DISABLE_TRIGGER). */
+  /**
+   * Sign-in, order lists, cancel and withdraw are available (false only when
+   * the kill switch is "all").
+   */
   enabled: boolean;
+  /** New limit / DCA orders may be placed (kill switch off). */
+  newOrdersEnabled: boolean;
+  /** Kill-switch mode (NEXT_PUBLIC_DISABLE_TRIGGER, inlined at build time). */
+  mode: TriggerMode;
   /** Connected wallet (base58) or null. */
   wallet: string | null;
   status: TriggerAuthStatus;
@@ -91,7 +98,7 @@ export function useTriggerAuth(): UseTriggerAuthResult {
 
   // After a reload: restore the session from the tab's refresh token, once.
   useEffect(() => {
-    if (!TRIGGER_ENABLED || !wallet || restoreAttempted.has(wallet)) return;
+    if (!MANAGE_ENABLED || !wallet || restoreAttempted.has(wallet)) return;
     const s = useTriggerAuthStore.getState().sessions[wallet];
     if (s && s.status !== "signed-out") return;
     if (!refreshTokenStorage.read(wallet)) return;
@@ -107,7 +114,7 @@ export function useTriggerAuth(): UseTriggerAuthResult {
 
   const signIn = useCallback(
     async (opts?: { mode?: TriggerChallengeType }): Promise<boolean> => {
-      if (!TRIGGER_ENABLED || !wallet) return false;
+      if (!MANAGE_ENABLED || !wallet) return false;
       const inflight = signInFlights.get(wallet);
       if (inflight) return inflight;
       const store = useTriggerAuthStore.getState();
@@ -165,10 +172,12 @@ export function useTriggerAuth(): UseTriggerAuthResult {
   }, [wallet]);
 
   return {
-    enabled: TRIGGER_ENABLED,
+    enabled: MANAGE_ENABLED,
+    newOrdersEnabled: NEW_ORDERS_ENABLED,
+    mode: TRIGGER_MODE,
     wallet,
-    status: TRIGGER_ENABLED ? status : "signed-out",
-    error: TRIGGER_ENABLED ? error : null,
+    status: MANAGE_ENABLED ? status : "signed-out",
+    error: MANAGE_ENABLED ? error : null,
     supportsMessageSigning: !!signMessage,
     signIn,
     signOut,

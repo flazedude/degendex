@@ -223,6 +223,56 @@ describe("validateDepositTransaction", () => {
     expect(r.ok && r.depositedAmount).toBe("15000000");
   });
 
+  it("does not trust craft.inputTokenAccount unless it is set up for the vault in this tx", () => {
+    // An existing account (e.g. an attacker's USDC account) named as the
+    // order's token account, with the real vault as receiverAddress.
+    const foreign = pk();
+    const tx = build(user, [transferChecked(userAta, mint, foreign, user, BigInt(20_000_000), 6)]);
+    expectFail(
+      validateDepositTransaction(tx, {
+        ...exp,
+        vaultPubkey: vault.toBase58(),
+        inputTokenAccount: foreign.toBase58(),
+      }),
+      /not set up in this transaction/
+    );
+
+    // Initialised here, but for someone else.
+    const orderAcct = Keypair.generate();
+    const tx2 = build(user, [
+      SystemProgram.createAccount({
+        fromPubkey: user,
+        newAccountPubkey: orderAcct.publicKey,
+        lamports: 2_039_280,
+        space: 165,
+        programId: P(TOKEN_PROGRAM_ID),
+      }),
+      initAccount3(orderAcct.publicKey, mint, attacker),
+      transfer(userAta, orderAcct.publicKey, user, BigInt(15_000_000)),
+    ]);
+    expectFail(
+      validateDepositTransaction(tx2, { ...exp, inputTokenAccount: orderAcct.publicKey.toBase58() }),
+      /not your vault/
+    );
+
+    // Initialised for the vault but for another mint.
+    const other = pk();
+    const tx3 = build(user, [
+      SystemProgram.createAccount({
+        fromPubkey: user,
+        newAccountPubkey: orderAcct.publicKey,
+        lamports: 2_039_280,
+        space: 165,
+        programId: P(TOKEN_PROGRAM_ID),
+      }),
+      initAccount3(orderAcct.publicKey, other, vault),
+      transferChecked(userAta, mint, vaultAta, user, BigInt(1), 6),
+    ]);
+    expect(
+      validateDepositTransaction(tx3, { ...exp, inputTokenAccount: orderAcct.publicKey.toBase58() }).ok
+    ).toBe(false);
+  });
+
   it("accepts a Token-2022 deposit", () => {
     const t22UserAta = ata(user, mint, TOKEN_2022_PROGRAM_ID);
     const t22VaultAta = ata(vault, mint, TOKEN_2022_PROGRAM_ID);

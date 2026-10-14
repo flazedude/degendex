@@ -58,15 +58,82 @@ describe("trigger proxy: routing", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("404s everything when the kill switch is on", async () => {
-    vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "1");
-    const { POST } = await load();
+  it("404s every route when the kill switch is 'all', pointing to jup.ag", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "all");
+    const { GET, POST } = await load();
     const res = await POST(
       req("POST", "auth/challenge", { body: { walletPubkey: WALLET, type: "message" } }),
       ctx("auth/challenge")
     );
     expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/jup\.ag/);
+    const hist = await GET(
+      req("GET", "orders/history", { headers: { authorization: `Bearer ${JWT}` }, query: "state=active" }),
+      ctx("orders/history")
+    );
+    expect(hist.status).toBe(404);
+    const cancel = await POST(
+      req("POST", `orders/price/cancel/${UUID}`, { headers: { authorization: `Bearer ${JWT}` } }),
+      ctx(`orders/price/cancel/${UUID}`)
+    );
+    expect(cancel.status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  for (const flag of ["1", "new"]) {
+    it(`with the kill switch at "${flag}" blocks only new orders`, async () => {
+      vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", flag);
+      const { GET, POST, PATCH } = await load();
+      const auth = { authorization: `Bearer ${JWT}` };
+      const blocked = [
+        await POST(req("POST", "deposit/craft", { headers: auth, body: {} }), ctx("deposit/craft")),
+        await POST(req("POST", "orders/price", { headers: auth, body: {} }), ctx("orders/price")),
+        await POST(req("POST", "orders/dca", { headers: auth, body: {} }), ctx("orders/dca")),
+        await PATCH(
+          req("PATCH", `orders/price/${UUID}`, { headers: auth, body: { orderType: "single", triggerPriceUsd: 5 } }),
+          ctx(`orders/price/${UUID}`)
+        ),
+      ];
+      for (const res of blocked) {
+        expect(res.status).toBe(404);
+        expect(await res.json()).toMatchObject({ error: "New limit orders and DCA are paused", disabled: true });
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // Sign-in, lists, vault, cancel and confirm-cancel still reach Jupiter.
+      fetchMock.mockImplementation(async () => json({ ok: true }));
+      const allowed = [
+        await POST(
+          req("POST", "auth/challenge", { body: { walletPubkey: WALLET, type: "message" } }),
+          ctx("auth/challenge")
+        ),
+        await GET(req("GET", "vault", { headers: auth }), ctx("vault")),
+        await GET(req("GET", "orders/history", { headers: auth, query: "state=active" }), ctx("orders/history")),
+        await GET(req("GET", "orders/history/dca", { headers: auth }), ctx("orders/history/dca")),
+        await POST(req("POST", `orders/dca/cancel/${UUID}`, { headers: auth }), ctx(`orders/dca/cancel/${UUID}`)),
+        await POST(
+          req("POST", `orders/price/confirm-cancel/${UUID}`, {
+            headers: auth,
+            body: { signedTransaction: TX, cancelRequestId: UUID },
+          }),
+          ctx(`orders/price/confirm-cancel/${UUID}`)
+        ),
+      ];
+      for (const res of allowed) expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(allowed.length);
+    });
+  }
+
+  it("reads the kill switch on every request (no rebuild needed server-side)", async () => {
+    const { POST } = await load();
+    const auth = { authorization: `Bearer ${JWT}` };
+    fetchMock.mockImplementation(async () => json({ ok: true }));
+    vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "new");
+    expect((await POST(req("POST", "deposit/craft", { headers: auth, body: {} }), ctx("deposit/craft"))).status).toBe(404);
+    vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "");
+    const res = await POST(req("POST", "deposit/craft", { headers: auth, body: {} }), ctx("deposit/craft"));
+    // Reaches validation now (400 for the empty body) instead of the kill switch.
+    expect(res.status).toBe(400);
   });
 });
 

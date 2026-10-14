@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { useRelativeClock } from "../useRelativeClock";
 import { TriggerGate } from "./TriggerConsentDialog";
 import {
+  CardLine,
+  OrderCard,
   PairCell,
   RowActions,
   StatusChip,
@@ -96,7 +98,38 @@ function Rows() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-x-auto">
+      {/* Below sm: stacked cards, so status and the Withdraw / Cancel button
+          are always on screen (the table needs ~760px). */}
+      <div className="min-h-0 flex-1 overflow-y-auto sm:hidden">
+        {rows.length === 0 ? (
+          <TableMessage>No open limit or DCA orders</TableMessage>
+        ) : (
+          <div role="list" aria-label="Open orders">
+            {rows.map((r) => (
+              <OrderCard
+                key={rowKey(r)}
+                row={r}
+                metadata={metadata}
+                action={<RowActions row={r} actions={actions} confirm={confirm} />}
+              >
+                <CardLine label="Amount">
+                  <AmountCell row={r} metadata={metadata} />
+                </CardLine>
+                <CardLine label={r.family === "price" ? "Trigger" : "Rounds"}>
+                  <TriggerCell row={r} />
+                </CardLine>
+                <CardLine label="Filled">
+                  <span className="font-mono tabular-nums">{fillPercentText(r)}</span>
+                </CardLine>
+                <CardLine label={r.family === "price" ? "Expires" : "Next round"}>
+                  <TimeCell row={r} now={now} />
+                </CardLine>
+              </OrderCard>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="hidden min-h-0 flex-1 overflow-x-auto sm:block">
         <div className="min-w-[760px]">
           <div
             className={cn(

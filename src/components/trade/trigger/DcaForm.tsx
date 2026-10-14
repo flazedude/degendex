@@ -7,12 +7,13 @@ import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useTriggerActions } from "@/hooks/useTriggerActions";
 import { useTriggerOrders } from "@/hooks/useTriggerOrders";
 import { formatUsd } from "@/lib/amounts";
-import { MAX_ACTIVE_DCA, TRIGGER_MIN_USD } from "@/lib/jupiter/trigger/config";
+import { MAX_ACTIVE_DCA, NEW_ORDERS_ENABLED, TRIGGER_MIN_USD, TRIGGER_MODE } from "@/lib/jupiter/trigger/config";
 import type { OrderSide } from "@/lib/jupiter/trigger/orders";
+import { UNKNOWN_ORDER_HOLD_MESSAGE } from "@/lib/jupiter/trigger/actionResult";
 import { getTokenWarnings } from "@/lib/tokens/risk";
 import type { TokenInfo } from "@/lib/tokens/types";
 import { cn } from "@/lib/utils";
-import { TriggerGate } from "./TriggerConsentDialog";
+import { FeesNote, TriggerGate, TriggerUnavailable } from "./TriggerConsentDialog";
 import {
   BetaBadge,
   DetailRow,
@@ -22,7 +23,7 @@ import {
   SideToggle,
   SubmitButton,
 } from "./formParts";
-import { formatDuration, formatInterval } from "./triggerFormat";
+import { formatDuration, formatInterval, minimumText } from "./triggerFormat";
 import {
   DEFAULT_INTERVAL,
   INTERVAL_OPTIONS,
@@ -59,6 +60,7 @@ export function DcaForm({ base }: { base: TokenInfo }) {
   const orders = useTriggerOrders();
   const actions = useTriggerActions();
   const busy = actions.pending?.kind === "dca";
+  const otherBusy = (actions.isBusy && !busy) || actions.newOrdersHeld;
   // Unknown until the active list has loaded once.
   const activeDcaCount = orders.enabled && !orders.isLoading && !orders.error ? orders.activeDcaCount : null;
 
@@ -118,111 +120,121 @@ export function DcaForm({ base }: { base: TokenInfo }) {
         <span>DCA · {base.symbol}/USDC</span>
         <BetaBadge />
       </div>
-      <TriggerGate intro={`Split a ${base.symbol} buy or sell into rounds over time. Orders run on Jupiter.`}>
-        <div className="space-y-2">
-          <SideToggle side={side} onChange={changeSide} disabled={busy} />
+      {!NEW_ORDERS_ENABLED ? (
+        <TriggerUnavailable
+          kind={TRIGGER_MODE === "off" ? "off" : "new-orders"}
+          className="border border-border/50 bg-background/30 p-3"
+        />
+      ) : (
+        <TriggerGate intro={`Split a ${base.symbol} buy or sell into rounds over time. Orders run on Jupiter.`}>
+          <div className="space-y-2">
+            <SideToggle side={side} onChange={changeSide} disabled={busy} />
 
-          <PayAmountField
-            label="Total you pay"
-            token={pay}
-            value={amount}
-            onChange={edit(setAmount)}
-            disabled={busy}
-            footer={totalUsd ? `≈ ${totalUsd}` : ""}
-          />
+            <PayAmountField
+              label="Total you pay"
+              token={pay}
+              value={amount}
+              onChange={edit(setAmount)}
+              disabled={busy}
+              footer={totalUsd ? `≈ ${totalUsd}` : ""}
+            />
 
-          <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2">
-            <label className="space-y-1">
-              <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Orders</span>
-              <input
-                inputMode="numeric"
-                autoComplete="off"
-                aria-label="Number of orders"
-                value={orderCount}
-                disabled={busy}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/\D/g, "").slice(0, 5);
-                  edit(setOrderCount)(v);
-                }}
-                className="h-[22px] w-full border border-border/50 bg-background/50 px-1.5 font-mono text-[11px] outline-none focus:border-primary/60 disabled:opacity-60"
-              />
-            </label>
-            <div className="space-y-1">
-              <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Every</span>
-              <Segmented
-                ariaLabel="Interval between orders"
-                options={INTERVAL_OPTIONS}
-                value={interval}
-                onChange={edit(setIntervalChoice)}
-                disabled={busy}
-              />
+            <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2">
+              <label className="space-y-1">
+                <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Orders</span>
+                <input
+                  inputMode="numeric"
+                  autoComplete="off"
+                  aria-label="Number of orders"
+                  value={orderCount}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "").slice(0, 5);
+                    edit(setOrderCount)(v);
+                  }}
+                  className="h-[22px] w-full border border-border/50 bg-background/50 px-1.5 font-mono text-[11px] outline-none focus:border-primary/60 disabled:opacity-60"
+                />
+              </label>
+              <div className="space-y-1">
+                <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Every</span>
+                <Segmented
+                  ariaLabel="Interval between orders"
+                  options={INTERVAL_OPTIONS}
+                  value={interval}
+                  onChange={edit(setIntervalChoice)}
+                  disabled={busy}
+                />
+              </div>
             </div>
+
+            {interval === "custom" && (
+              <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span className="shrink-0">Every</span>
+                <input
+                  inputMode="decimal"
+                  autoComplete="off"
+                  aria-label="Custom interval in hours"
+                  placeholder="e.g. 4"
+                  value={customHours}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(",", ".");
+                    if (/^\d{0,4}(?:\.\d{0,3})?$/.test(v)) edit(setCustomHours)(v);
+                  }}
+                  className="h-[22px] w-20 border border-border/50 bg-background/50 px-1.5 font-mono text-[11px] text-foreground outline-none focus:border-primary/60 disabled:opacity-60"
+                />
+                <span>hours (1 min to 1 year)</span>
+              </label>
+            )}
+
+            <div className="space-y-0.5 border border-border/40 bg-background/30 px-2 py-1.5 text-[10px] text-muted-foreground">
+              <DetailRow label="Per round">
+                {view.perRound ? `${view.perRound} ${pay.symbol}` : "—"}
+              </DetailRow>
+              <DetailRow label="Value per round">
+                <span className={cn(view.belowMinimum && "text-yellow-500")}>
+                  {perRoundUsd ? `≈ ${perRoundUsd}` : "—"} ({minimumText(TRIGGER_MIN_USD, view.nearMinimum)})
+                </span>
+              </DetailRow>
+              <DetailRow label="Schedule">
+                {view.orderCount && view.intervalSeconds
+                  ? `${view.orderCount} rounds ${formatInterval(view.intervalSeconds)}`
+                  : "—"}
+              </DetailRow>
+              <DetailRow label="Last round in">
+                {view.durationSeconds !== null ? `≈ ${formatDuration(view.durationSeconds)}` : "—"}
+              </DetailRow>
+              <DetailRow label="You receive">{receive.symbol} at each round&apos;s market price</DetailRow>
+              <DetailRow label="Active DCA orders">
+                <span className={cn(view.atCap && "text-yellow-500")}>
+                  {activeDcaCount ?? "—"} / {MAX_ACTIVE_DCA}
+                </span>
+              </DetailRow>
+              <p className="pt-0.5 leading-snug">
+                The first round runs right away. A DCA cannot be edited or paused; cancelling it withdraws the
+                unfilled remainder.
+              </p>
+              <p className="pt-0.5 leading-snug">
+                <FeesNote />
+              </p>
+            </div>
+
+            <FormNotes warnings={notes} error={formError} />
+            <TokenWarningBanner token={base} warnings={warnings} compact />
+
+            <SubmitButton
+              side={side}
+              label={`Start DCA ${side}`}
+              blocker={view.blocker}
+              busy={busy}
+              busyLabel="Starting DCA..."
+              otherBusy={otherBusy}
+              otherBusyReason={actions.isBusy && !busy ? actions.busyReason : UNKNOWN_ORDER_HOLD_MESSAGE}
+              onClick={() => void submit()}
+            />
           </div>
-
-          {interval === "custom" && (
-            <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span className="shrink-0">Every</span>
-              <input
-                inputMode="decimal"
-                autoComplete="off"
-                aria-label="Custom interval in hours"
-                placeholder="e.g. 4"
-                value={customHours}
-                disabled={busy}
-                onChange={(e) => {
-                  const v = e.target.value.replace(",", ".");
-                  if (/^\d{0,4}(?:\.\d{0,3})?$/.test(v)) edit(setCustomHours)(v);
-                }}
-                className="h-[22px] w-20 border border-border/50 bg-background/50 px-1.5 font-mono text-[11px] text-foreground outline-none focus:border-primary/60 disabled:opacity-60"
-              />
-              <span>hours (1 min to 1 year)</span>
-            </label>
-          )}
-
-          <div className="space-y-0.5 border border-border/40 bg-background/30 px-2 py-1.5 text-[10px] text-muted-foreground">
-            <DetailRow label="Per round">
-              {view.perRound ? `${view.perRound} ${pay.symbol}` : "—"}
-            </DetailRow>
-            <DetailRow label="Value per round">
-              <span className={cn(view.belowMinimum && "text-yellow-500")}>
-                {perRoundUsd ? `≈ ${perRoundUsd}` : "—"} (min ${TRIGGER_MIN_USD})
-              </span>
-            </DetailRow>
-            <DetailRow label="Schedule">
-              {view.orderCount && view.intervalSeconds
-                ? `${view.orderCount} rounds ${formatInterval(view.intervalSeconds)}`
-                : "—"}
-            </DetailRow>
-            <DetailRow label="Last round in">
-              {view.durationSeconds !== null ? `≈ ${formatDuration(view.durationSeconds)}` : "—"}
-            </DetailRow>
-            <DetailRow label="You receive">{receive.symbol} at each round&apos;s market price</DetailRow>
-            <DetailRow label="Active DCA orders">
-              <span className={cn(view.atCap && "text-yellow-500")}>
-                {activeDcaCount ?? "—"} / {MAX_ACTIVE_DCA}
-              </span>
-            </DetailRow>
-            <DetailRow label="Fees">No DEGN DEX fee · Jupiter fees on fill</DetailRow>
-            <p className="pt-0.5 leading-snug">
-              The first round runs right away. A DCA cannot be edited or paused; cancelling it withdraws the
-              unfilled remainder.
-            </p>
-          </div>
-
-          <FormNotes warnings={notes} error={formError} />
-          <TokenWarningBanner token={base} warnings={warnings} compact />
-
-          <SubmitButton
-            side={side}
-            label={`Start DCA ${side}`}
-            blocker={view.blocker}
-            busy={busy}
-            busyLabel="Starting DCA..."
-            otherBusy={actions.isBusy && !busy}
-            onClick={() => void submit()}
-          />
-        </div>
-      </TriggerGate>
+        </TriggerGate>
+      )}
     </div>
   );
 }

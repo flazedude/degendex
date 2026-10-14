@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { POPULAR_TOKENS, SOL_MINT, USDC_MINT } from "@/lib/constants";
 import type { TriggerOrderRow } from "@/lib/jupiter/trigger/types";
 import {
+  FUNDS_MAY_BE_HELD_NOTE,
   baseMintOf,
+  cancelLabel,
   distancePct,
   eventLabel,
   fillPercentText,
@@ -12,9 +14,12 @@ import {
   formatInterval,
   isStableToken,
   mergeOpenRows,
+  minimumText,
   offsetPrice,
+  outputNotPaidOut,
   orderTypeLabel,
   pageRangeText,
+  paidSummary,
   priceToInput,
   roundsText,
   rowSide,
@@ -188,5 +193,57 @@ describe("lists", () => {
     expect(solscanTx(sig)).toBe(`https://solscan.io/tx/${sig}`);
     expect(solscanTx("not a sig")).toBeNull();
     expect(solscanTx(undefined)).toBeNull();
+  });
+});
+
+describe("failed after execution, unknown states", () => {
+  it("labels held funds and unknown states", () => {
+    const held = statusChip(row({ status: "failed", state: "withdraw_failed", fundsMayBeHeld: true }));
+    expect(held.label).toBe("Failed · funds may be held");
+    expect(held.title).toContain(FUNDS_MAY_BE_HELD_NOTE);
+    expect(statusChip(row({ status: "unknown", state: "zzz" })).title).toMatch(/^Status not recognised/);
+    expect(FUNDS_MAY_BE_HELD_NOTE).toMatch(/jup\.ag/);
+  });
+
+  it("marks withdraw_failed output as owed, not received", () => {
+    expect(outputNotPaidOut(row({ state: "withdraw_failed", fundsMayBeHeld: true }))).toBe(true);
+    expect(outputNotPaidOut(row({ state: "fill_failed", fundsMayBeHeld: true }))).toBe(false);
+    expect(outputNotPaidOut(row({ state: "withdraw_failed" }))).toBe(false);
+  });
+
+  it("never calls the unknown-state action Withdraw", () => {
+    expect(cancelLabel(row({ status: "unknown" }))).toBe("Cancel & withdraw");
+    expect(cancelLabel(row())).toBe("Cancel");
+  });
+});
+
+describe("paidSummary (history Paid)", () => {
+  it("shows what was spent and what went back", () => {
+    expect(paidSummary(row({ inputAmountUsed: "25000000" }))).toEqual({
+      paid: "25000000",
+      deposited: "100000000",
+      remainder: "75000000",
+      remainderLabel: "refunded",
+    });
+    expect(paidSummary(row({ inputAmountUsed: "100000000" }))).toMatchObject({ paid: "100000000", remainder: null });
+    expect(paidSummary(row({ inputAmountUsed: "0" }))).toMatchObject({ paid: "0", remainder: "100000000" });
+    // Capped at the deposit.
+    expect(paidSummary(row({ inputAmountUsed: "500000000" }))).toMatchObject({ paid: "100000000", remainder: null });
+  });
+
+  it("says where the remainder is", () => {
+    expect(paidSummary(row({ inputAmountUsed: "0", canWithdraw: true })).remainderLabel).toBe("in vault");
+    expect(paidSummary(row({ inputAmountUsed: "0", fundsMayBeHeld: true })).remainderLabel).toBe("may be held");
+  });
+
+  it("only knows the deposit when Jupiter does not report the amount spent", () => {
+    expect(paidSummary(row())).toMatchObject({ paid: null, deposited: "100000000", remainder: null });
+  });
+});
+
+describe("minimumText", () => {
+  it("nudges near the minimum", () => {
+    expect(minimumText(10, false)).toBe("$10 minimum");
+    expect(minimumText(10, true)).toBe("$10 minimum (we suggest a little more)");
   });
 });

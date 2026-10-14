@@ -334,6 +334,36 @@ export function extractUsdPrice(body: unknown, mint: string): number | null {
   return null;
 }
 
+/** A price older than this is too old for the "which side of market" check. */
+export const MAX_PRICE_AGE_MS = 2 * 60_000;
+
+export type PriceRead =
+  | { kind: "fresh"; price: number }
+  | { kind: "stale"; price: number }
+  | { kind: "missing" };
+
+/**
+ * Reads a /api/market/prices response for `mint`, telling a live price from a
+ * delayed one: the route flags served-from-stale-cache answers with
+ * `stale: true`, and `updatedAt` (epoch ms) says when the price was fetched.
+ */
+export function readUsdPrice(body: unknown, mint: string, nowMs: number): PriceRead {
+  const price = extractUsdPrice(body, mint);
+  if (price === null) return { kind: "missing" };
+  const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const updatedAt = typeof b.updatedAt === "number" && Number.isFinite(b.updatedAt) ? b.updatedAt : null;
+  const tooOld = updatedAt !== null && nowMs - updatedAt > MAX_PRICE_AGE_MS;
+  return b.stale === true || tooOld ? { kind: "stale", price } : { kind: "fresh", price };
+}
+
+/** USD value of `usd` vs the minimum: within this share above it, suggest more. */
+export const MIN_ORDER_MARGIN = 0.02;
+
+/** True when `usd` clears the minimum by less than MIN_ORDER_MARGIN. */
+export function isNearMinimum(usd: number | null, minUsd: number): boolean {
+  return usd !== null && usd >= minUsd && usd < minUsd * (1 + MIN_ORDER_MARGIN);
+}
+
 /** Recognises Jupiter's "requestId already used / expired" create error. */
 export function isDepositCacheMiss(message: string | undefined): boolean {
   return !!message && /deposit transaction not found in cache/i.test(message);

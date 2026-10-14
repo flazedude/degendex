@@ -91,18 +91,70 @@ const STATUS: Record<TriggerOrderStatus, { label: string; tone: StatusTone }> = 
   unknown: { label: "Unknown", tone: "neutral" },
 };
 
+export const FUNDS_MAY_BE_HELD_NOTE =
+  "The order executed, but a later step at Jupiter failed. Funds may still be held in your Jupiter vault: check jup.ag or contact Jupiter support.";
+
 /** Status chip text + tone. Unknown statuses never throw. */
-export function statusChip(row: Pick<TriggerOrderRow, "status" | "state" | "canWithdraw">): {
+export function statusChip(
+  row: Pick<TriggerOrderRow, "status" | "state" | "canWithdraw"> & Partial<Pick<TriggerOrderRow, "fundsMayBeHeld">>
+): {
   label: string;
   tone: StatusTone;
   title: string;
 } {
   const s = STATUS[row.status] ?? STATUS.unknown;
   let label = s.label;
+  let title = `Jupiter state: ${row.state || "unknown"}`;
   // A DCA "withdrawing" order is stuck mid-cancel until the user withdraws.
   if (row.status === "withdrawing" && row.canWithdraw) label = "Needs withdraw";
   if (row.status === "expired" && row.canWithdraw) label = "Expired · funds held";
-  return { label, tone: s.tone, title: `Jupiter state: ${row.state || "unknown"}` };
+  if (row.fundsMayBeHeld) {
+    label = "Failed · funds may be held";
+    title = `${FUNDS_MAY_BE_HELD_NOTE} (${title})`;
+  }
+  if (row.status === "unknown") title = `Status not recognised. ${title}`;
+  return { label, tone: s.tone, title };
+}
+
+/**
+ * History "Paid" figure: what fills actually spent, plus what went (or is
+ * waiting to go) back. `paid` is null when Jupiter does not say how much was
+ * spent; then only the deposit is known.
+ */
+export function paidSummary(
+  row: Pick<TriggerOrderRow, "inputAmountInitial" | "inputAmountUsed" | "canWithdraw" | "fundsMayBeHeld">
+): { paid: string | null; deposited: string; remainder: string | null; remainderLabel: string } {
+  const deposited = safeBigNumber(row.inputAmountInitial);
+  const remainderLabel = row.canWithdraw ? "in vault" : row.fundsMayBeHeld ? "may be held" : "refunded";
+  if (row.inputAmountUsed === undefined || !deposited.isFinite()) {
+    return { paid: null, deposited: row.inputAmountInitial, remainder: null, remainderLabel };
+  }
+  const used = BigNumber.min(safeBigNumber(row.inputAmountUsed), deposited);
+  const rest = deposited.minus(used);
+  return {
+    paid: used.toFixed(0),
+    deposited: row.inputAmountInitial,
+    remainder: rest.gt(0) ? rest.toFixed(0) : null,
+    remainderLabel,
+  };
+}
+
+/**
+ * Jupiter reports the swap ran but paying the output out failed
+ * (withdraw_failed): the output figure is owed, not received.
+ */
+export function outputNotPaidOut(row: Pick<TriggerOrderRow, "state" | "fundsMayBeHeld">): boolean {
+  return !!row.fundsMayBeHeld && row.state === "withdraw_failed";
+}
+
+/** "Cancel" for live orders; plain "Cancel & withdraw" for unrecognised states. */
+export function cancelLabel(row: Pick<TriggerOrderRow, "status">): string {
+  return row.status === "unknown" ? "Cancel & withdraw" : "Cancel";
+}
+
+/** "$10 minimum", with a nudge when the amount only just clears it. */
+export function minimumText(minUsd: number, nearMinimum: boolean): string {
+  return nearMinimum ? `$${minUsd} minimum (we suggest a little more)` : `$${minUsd} minimum`;
 }
 
 export const TONE_CLASS: Record<StatusTone, string> = {

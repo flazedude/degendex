@@ -7,13 +7,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useArmedConfirm } from "@/components/swap/useArmedConfirm";
 import { useTokenMetadata } from "@/hooks/useTokenMetadata";
 import type { TriggerPendingAction, UseTriggerActionsResult } from "@/hooks/useTriggerActions";
+import { JUPITER_APP_URL } from "@/lib/jupiter/trigger/config";
 import type { TriggerOrderRow } from "@/lib/jupiter/trigger/types";
 import type { TokenInfo } from "@/lib/tokens/types";
 import { cn } from "@/lib/utils";
 import { formatUsdPrice } from "../tradesFormat";
 import {
+  FUNDS_MAY_BE_HELD_NOTE,
   TONE_CLASS,
   baseMintOf,
+  cancelLabel,
   eventLabel,
   formatDateTime,
   formatInterval,
@@ -136,17 +139,37 @@ function isPendingFor(pending: TriggerPendingAction | null, row: TriggerOrderRow
   return pending?.kind === kind && pending.orderId === row.id;
 }
 
-/** Withdraw (highlighted) or Cancel (two-click) for a row. */
+/** Link to jup.ag, which manages the same per-wallet vault. */
+export function JupiterPointer({ title, label = "jup.ag" }: { title?: string; label?: string }) {
+  return (
+    <a
+      href={JUPITER_APP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className="inline-flex items-center gap-0.5 text-[10px] text-yellow-500 hover:underline"
+    >
+      {label} <ArrowUpRight className="h-2.5 w-2.5" />
+    </a>
+  );
+}
+
+/**
+ * Withdraw (highlighted), Cancel (two-click; "Cancel & withdraw" for
+ * unrecognised states), or a jup.ag pointer when funds may be held after a
+ * failure. Disabled buttons say why in their tooltip.
+ */
 export function RowActions({
   row,
   actions,
   confirm,
 }: {
   row: TriggerOrderRow;
-  actions: Pick<UseTriggerActionsResult, "cancelOrder" | "withdraw" | "pending" | "isBusy">;
+  actions: Pick<UseTriggerActionsResult, "cancelOrder" | "withdraw" | "pending" | "isBusy" | "busyReason">;
   confirm: ReturnType<typeof useArmedConfirm>;
 }) {
   const base = "h-5 rounded-none px-1.5 text-[10px] font-semibold";
+  const waitTitle = actions.isBusy ? (actions.busyReason ?? "Another order action is running") : null;
   if (row.canWithdraw) {
     const running = isPendingFor(actions.pending, row, "withdraw");
     return (
@@ -154,7 +177,7 @@ export function RowActions({
         size="xs"
         onClick={() => void actions.withdraw(row)}
         disabled={actions.isBusy}
-        title="Return the funds held in the Jupiter vault to your wallet"
+        title={running ? undefined : (waitTitle ?? "Return the funds held in the Jupiter vault to your wallet")}
         className={cn(base, "bg-yellow-500 text-black hover:bg-yellow-400")}
       >
         {running && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -166,6 +189,7 @@ export function RowActions({
     const running = isPendingFor(actions.pending, row, "cancel");
     const key = rowKey(row);
     const armed = confirm.armedId === key;
+    const unknown = row.status === "unknown";
     return (
       <Button
         size="xs"
@@ -174,7 +198,14 @@ export function RowActions({
           if (confirm.press(key)) void actions.cancelOrder(row);
         }}
         disabled={actions.isBusy}
-        title="Stops the order and returns the unfilled amount (needs a wallet signature)"
+        title={
+          running
+            ? undefined
+            : (waitTitle ??
+              (unknown
+                ? "Status not recognised. Cancels the order (if it is still live) and returns what it holds (needs a wallet signature)"
+                : "Stops the order and returns the unfilled amount (needs a wallet signature)"))
+        }
         className={cn(
           base,
           "border-border/60 bg-transparent",
@@ -182,11 +213,60 @@ export function RowActions({
         )}
       >
         {running && <Loader2 className="h-3 w-3 animate-spin" />}
-        {running ? "Cancelling" : armed ? "Confirm?" : "Cancel"}
+        {running ? "Cancelling" : armed ? "Confirm?" : cancelLabel(row)}
       </Button>
     );
   }
+  if (row.fundsMayBeHeld) return <JupiterPointer title={FUNDS_MAY_BE_HELD_NOTE} />;
   return <span className="text-[10px] text-muted-foreground">—</span>;
+}
+
+/**
+ * Small-screen row: status and action on the first line so they never sit
+ * off-screen, details below.
+ */
+export function OrderCard({
+  row,
+  metadata,
+  action,
+  children,
+}: {
+  row: TriggerOrderRow;
+  metadata?: Record<string, TokenInfo>;
+  action: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      role="listitem"
+      className={cn(
+        "space-y-0.5 border-b border-l-2 border-b-border/30 px-3 py-1.5 text-[11px]",
+        row.canWithdraw || row.fundsMayBeHeld ? "border-l-yellow-500 bg-yellow-500/5" : "border-l-transparent"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <TypeCell row={row} />
+          <PairCell row={row} metadata={metadata} />
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <StatusChip row={row} />
+          {action}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Label / value line inside an OrderCard. */
+export function CardLine({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-[10px]">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right">{children}</span>
+    </div>
+  );
 }
 
 export function TableSkeleton({ rows = 3 }: { rows?: number }) {

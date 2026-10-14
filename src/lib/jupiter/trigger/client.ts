@@ -42,6 +42,8 @@ export class TriggerApiError extends Error {
   readonly authError: boolean;
   /** The proxy could not tell whether a transaction landed. */
   readonly unknownOutcome: boolean;
+  /** The response body was not JSON (e.g. a platform/CDN error page). */
+  readonly nonJson: boolean;
   readonly retryAfterMs?: number;
   readonly details?: Record<string, unknown>;
 
@@ -52,6 +54,7 @@ export class TriggerApiError extends Error {
       code?: TriggerErrorCode;
       authError?: boolean;
       unknownOutcome?: boolean;
+      nonJson?: boolean;
       retryAfterMs?: number;
       details?: Record<string, unknown>;
     } = {}
@@ -62,6 +65,7 @@ export class TriggerApiError extends Error {
     this.code = opts.code ?? "http";
     this.authError = opts.authError ?? false;
     this.unknownOutcome = opts.unknownOutcome ?? false;
+    this.nonJson = opts.nonJson ?? false;
     this.retryAfterMs = opts.retryAfterMs;
     this.details = opts.details;
   }
@@ -96,6 +100,8 @@ interface RawResult {
   status: number;
   body: unknown;
   headers: Headers;
+  /** The body did not parse as JSON. */
+  nonJson: boolean;
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -147,6 +153,7 @@ function errorFromResult(res: RawResult): TriggerApiError {
   return new TriggerApiError(message, res.status, {
     authError: b.authError === true,
     unknownOutcome: b.unknownOutcome === true,
+    nonJson: res.nonJson,
     details: isObj(b.details) ? b.details : undefined,
   });
 }
@@ -205,12 +212,14 @@ export function createTriggerClient(deps: TriggerClientDeps) {
       );
     }
     let body: unknown = null;
+    let nonJson = false;
     try {
       body = await res.json();
     } catch {
       body = null;
+      nonJson = true;
     }
-    return { status: res.status, body, headers: res.headers };
+    return { status: res.status, body, headers: res.headers, nonJson };
   }
 
   function storeTokens(wallet: string, tokens: TriggerAuthTokens): void {

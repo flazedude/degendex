@@ -7,7 +7,9 @@
 //                   ComputeBudget + Memo, memo names the wallet
 // - deposit tx:     user pays the fee, only known programs, every token/SOL
 //                   movement out of the user goes to the vault (receiverAddress)
-//                   or its token account for inputMint, total <= requested
+//                   or its token account for inputMint, total <= requested;
+//                   craft.inputTokenAccount must be initialised in the tx with
+//                   owner = vault and mint = inputMint
 // - withdrawal tx:  nothing leaves the user except fees/rent; transfers credit
 //                   the user's own token accounts / wallet
 //
@@ -476,9 +478,12 @@ export function validateDepositTransaction(
   try {
     const isSol = inputMint === NATIVE_MINT;
     const inits = collectInits(tx);
-    // Accounts that hold the vault's inputMint for this order.
+    // Accounts that hold the vault's inputMint for this order: the vault's
+    // ATAs, and accounts set up in THIS tx with owner = vault. The craft's
+    // inputTokenAccount is never trusted on its own word: the SPL Token
+    // program only checks the destination's mint, so an arbitrary existing
+    // account named there would otherwise pass as "your vault".
     const vaultInput = new Set<string>(atasFor(receiverAddress, inputMint));
-    if (exp.inputTokenAccount) vaultInput.add(exp.inputTokenAccount);
     // The user's own accounts for inputMint (ATAs + temp accounts made here).
     const userInput = new Set<string>(atasFor(user, inputMint));
     const initialised = new Set<string>();
@@ -486,6 +491,24 @@ export function validateDepositTransaction(
       initialised.add(i.account);
       if (i.mint === inputMint && i.owner === receiverAddress) vaultInput.add(i.account);
       if (i.mint === inputMint && i.owner === user) userInput.add(i.account);
+    }
+    // Real crafts create inputTokenAccount here (CreateAccountWithSeed, base =
+    // vault) and InitializeAccount3 it with owner = vault, so it is in
+    // vaultInput by now. Anything else is refused.
+    if (exp.inputTokenAccount) {
+      const init = inits.find((i) => i.account === exp.inputTokenAccount);
+      if (!init) {
+        return {
+          ok: false,
+          reason: `The order's token account ${short(exp.inputTokenAccount)} is not set up in this transaction, so it cannot be verified as your vault's`,
+        };
+      }
+      if (init.owner !== receiverAddress || init.mint !== inputMint) {
+        return {
+          ok: false,
+          reason: `The order's token account ${short(exp.inputTokenAccount)} is set up for ${short(init.owner)} and mint ${short(init.mint)}, not your vault and the input token`,
+        };
+      }
     }
 
     let deposited = BigInt(0);

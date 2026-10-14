@@ -13,7 +13,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useTriggerAuth } from "@/hooks/useTriggerAuth";
-import { TRIGGER_MIN_USD } from "@/lib/jupiter/trigger/config";
+import {
+  JUPITER_APP_URL,
+  JUPITER_FEES_URL,
+  NEW_ORDERS_PAUSED_MESSAGE,
+  TRIGGER_FEES_TEXT,
+  TRIGGER_MIN_USD,
+  TRIGGER_OFF_MESSAGE,
+} from "@/lib/jupiter/trigger/config";
 import { cn } from "@/lib/utils";
 import { recordConsent, useTriggerConsent } from "./consent";
 
@@ -24,7 +31,6 @@ const POINTS = [
   `Minimum $${TRIGGER_MIN_USD} per order (per round for DCA).`,
   "Execution and output are not guaranteed. Orders can fill partially, or be skipped when the price moves fast.",
   "Triggers use the token's USD price from Jupiter, not the pair rate.",
-  "DEGN DEX charges no fee on these orders. Jupiter's fees apply when an order fills.",
   "Never send tokens to the vault address yourself. Jupiter does not credit them to an order.",
 ];
 
@@ -104,6 +110,9 @@ export function TriggerConsentDialog({
           {POINTS.map((p) => (
             <li key={p}>{p}</li>
           ))}
+          <li>
+            <FeesNote />
+          </li>
         </ul>
 
         <a
@@ -159,12 +168,62 @@ export function TriggerConsentDialog({
   );
 }
 
-/** "Temporarily unavailable" note for the kill switch. */
-export function TriggerUnavailable({ className }: { className?: string }) {
+/** The fee sentence with a link to Jupiter's fee table. */
+export function FeesNote({ className }: { className?: string }) {
   return (
-    <p className={cn("text-[11px] text-muted-foreground", className)}>
-      Limit orders and DCA are temporarily unavailable.
-    </p>
+    <span className={className}>
+      {TRIGGER_FEES_TEXT}.{" "}
+      <a
+        href={JUPITER_FEES_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-0.5 text-primary hover:underline"
+      >
+        Jupiter&apos;s fees <ArrowUpRight className="h-2.5 w-2.5" />
+      </a>
+    </span>
+  );
+}
+
+function JupiterLink() {
+  return (
+    <a
+      href={JUPITER_APP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-0.5 text-primary hover:underline"
+    >
+      Open jup.ag <ArrowUpRight className="h-3 w-3" />
+    </a>
+  );
+}
+
+/**
+ * Kill-switch note. "off": the whole feature is off here, with the pointer to
+ * jup.ag (same vault). "new-orders": only new orders are paused; existing
+ * orders stay manageable in Open orders.
+ */
+export function TriggerUnavailable({
+  className,
+  kind = "off",
+}: {
+  className?: string;
+  kind?: "off" | "new-orders";
+}) {
+  if (kind === "new-orders") {
+    return (
+      <div className={cn("space-y-1 text-[11px] text-muted-foreground", className)} role="status">
+        <p className="font-medium text-foreground/90">{NEW_ORDERS_PAUSED_MESSAGE}.</p>
+        <p>Orders you already placed are still listed under Open orders, where you can cancel or withdraw them.</p>
+      </div>
+    );
+  }
+  return (
+    <div className={cn("space-y-1 text-[11px] text-muted-foreground", className)} role="status">
+      <p className="font-medium text-foreground/90">Limit orders and DCA are turned off here for now.</p>
+      <p>{TRIGGER_OFF_MESSAGE}</p>
+      <JupiterLink />
+    </div>
   );
 }
 
@@ -192,7 +251,7 @@ export function TriggerGate({
   if (!auth.enabled) {
     return (
       <div className={cn(layout === "centered" ? "flex flex-1 items-center justify-center p-4" : "py-2")}>
-        <TriggerUnavailable className="text-center" />
+        <TriggerUnavailable className={cn(layout === "centered" && "flex flex-col items-center text-center")} />
       </div>
     );
   }
@@ -239,7 +298,10 @@ export function TriggerGate({
     content = (
       <>
         <p className="text-muted-foreground">
-          Sign in to Jupiter to use limit orders and DCA. It&apos;s a signature, not a token approval.
+          {layout === "centered"
+            ? "Sign in to see your orders - funds from expired or cancelled orders may be waiting in your Jupiter vault."
+            : "Sign in to Jupiter to use limit orders and DCA."}{" "}
+          It&apos;s a signature, not a token approval.
         </p>
         {auth.error && (
           <p role="alert" className="text-[10px] text-destructive">

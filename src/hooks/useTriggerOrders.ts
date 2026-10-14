@@ -4,14 +4,21 @@ import { useCallback, useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isTriggerApiError, triggerFetch } from "@/lib/jupiter/trigger/client";
-import { TRIGGER_ENABLED } from "@/lib/jupiter/trigger/config";
-import { countActiveDca, parseHistoryPage, selectNeedsWithdraw } from "@/lib/jupiter/trigger/normalize";
+import { MANAGE_ENABLED } from "@/lib/jupiter/trigger/config";
+import {
+  countActiveDca,
+  liveStoppedRows,
+  parseHistoryPage,
+  selectNeedsWithdraw,
+  withStoppedRows,
+} from "@/lib/jupiter/trigger/normalize";
 import type {
   TriggerFamily,
   TriggerHistoryPage,
   TriggerOrderRow,
 } from "@/lib/jupiter/trigger/types";
 import { useTriggerSession } from "@/hooks/useTriggerAuth";
+import { recentStoppedRows, useTriggerBusyStore } from "@/store/useTriggerBusyStore";
 
 const ACTIVE_POLL_MS = 30_000;
 /** Expired price orders live under state=past but still hold funds. */
@@ -60,7 +67,10 @@ const byNewest = (a: TriggerOrderRow, b: TriggerOrderRow) =>
   b.createdAt - a.createdAt || b.updatedAt - a.updatedAt;
 
 export interface UseTriggerOrdersResult {
-  /** Queries run only when signed in (status ready) and the feature is enabled. */
+  /**
+   * Queries run only when signed in (status ready) and order management is
+   * available (on, or new orders paused: existing orders stay manageable).
+   */
   enabled: boolean;
   /** Active price + DCA orders, newest first. */
   activeRows: TriggerOrderRow[];
@@ -84,8 +94,9 @@ export function useTriggerOrders(): UseTriggerOrdersResult {
   const { publicKey } = useWallet();
   const wallet = publicKey?.toBase58() ?? null;
   const session = useTriggerSession(wallet);
-  const enabled = TRIGGER_ENABLED && !!wallet && session.status === "ready";
+  const enabled = MANAGE_ENABLED && !!wallet && session.status === "ready";
   const w = wallet ?? "";
+  const stopped = useTriggerBusyStore((s) => s.stopped);
 
   const common = {
     enabled,
@@ -123,14 +134,25 @@ export function useTriggerOrders(): UseTriggerOrdersResult {
   });
 
   const derived = useMemo(() => {
-    const priceRows = enabled ? (price.data?.rows ?? []) : [];
-    const dcaRows = enabled ? (dca.data?.rows ?? []) : [];
-    const pastRows = enabled ? (expired.data?.rows ?? []) : [];
+    const serverPrice = enabled ? (price.data?.rows ?? []) : [];
+    const serverDca = enabled ? (dca.data?.rows ?? []) : [];
+    const serverPast = enabled ? (expired.data?.rows ?? []) : [];
+    // Orders stopped here whose withdrawal did not go through: shown with a
+    // Withdraw button until Jupiter's lists catch up.
+    const live = enabled
+      ? liveStoppedRows(
+          [...serverPrice, ...serverDca, ...serverPast],
+          recentStoppedRows(stopped, wallet)
+        )
+      : [];
+    const priceRows = withStoppedRows(serverPrice, live);
+    const dcaRows = withStoppedRows(serverDca, live);
+    const pastRows = withStoppedRows(serverPast, live);
     const activeRows = [...priceRows, ...dcaRows].sort(byNewest);
-    const needsWithdraw = selectNeedsWithdraw([...activeRows, ...pastRows]);
+    const needsWithdraw = selectNeedsWithdraw([...activeRows, ...pastRows, ...live]);
     const activeDcaCount = Math.max(countActiveDca(dcaRows), enabled ? (dca.data?.pagination.total ?? 0) : 0);
     return { priceRows, dcaRows, activeRows, needsWithdraw, activeDcaCount };
-  }, [enabled, price.data, dca.data, expired.data]);
+  }, [enabled, price.data, dca.data, expired.data, stopped, wallet]);
 
   const queryClient = useQueryClient();
   const refetch = useCallback(async () => {
@@ -183,7 +205,7 @@ export function useTriggerOrderHistory(opts: UseTriggerOrderHistoryOptions): Use
   const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const enabled =
-    TRIGGER_ENABLED && !!wallet && session.status === "ready" && (opts.enabled ?? true);
+    MANAGE_ENABLED && !!wallet && session.status === "ready" && (opts.enabled ?? true);
   const w = wallet ?? "";
 
   const q = useQuery({

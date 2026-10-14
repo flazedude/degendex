@@ -200,6 +200,23 @@ describe("triggerFetch", () => {
     t.fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await expect(t.client.triggerFetch("vault", { auth: W })).rejects.toMatchObject({ code: "network", status: 0 });
   });
+
+  it("flags a non-JSON error body (platform / CDN error page)", async () => {
+    t.signIn();
+    t.fetchMock.mockResolvedValueOnce(
+      new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "content-type": "text/html" } })
+    );
+    await expect(t.client.triggerFetch("orders/price", { auth: W, method: "POST", body: {} })).rejects.toMatchObject({
+      status: 502,
+      nonJson: true,
+      unknownOutcome: false,
+    });
+    t.fetchMock.mockResolvedValueOnce(json({ error: "Bad request" }, 400));
+    await expect(t.client.triggerFetch("orders/price", { auth: W, method: "POST", body: {} })).rejects.toMatchObject({
+      status: 400,
+      nonJson: false,
+    });
+  });
 });
 
 describe("logout and vault", () => {

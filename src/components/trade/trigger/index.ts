@@ -1,6 +1,7 @@
 // Limit orders and DCA on Jupiter Trigger v2. Every component respects the
-// TRIGGER_ENABLED kill switch (forms and tables show a "temporarily
-// unavailable" note, the banner renders nothing).
+// kill switch (see lib/jupiter/trigger/config.ts): with new orders paused the
+// forms say so while Open orders, history, the banner and cancel / withdraw keep
+// working; fully off, everything points to jup.ag (same vault).
 export { TriggerConsentDialog, TriggerGate, TriggerUnavailable } from "./TriggerConsentDialog";
 export { LimitOrderForm } from "./LimitOrderForm";
 export { DcaForm } from "./DcaForm";

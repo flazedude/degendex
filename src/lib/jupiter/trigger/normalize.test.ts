@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  asStoppedRow,
   countActiveDca,
+  liveStoppedRows,
+  withStoppedRows,
   normalizeDcaOrder,
   normalizePriceOrder,
   parseHistoryPage,
@@ -174,10 +177,14 @@ describe("normalizePriceOrder", () => {
 
     const unknown = normalizePriceOrder({ ...PRICE_DOC, rawState: "zzz", orderState: "yyy" })!;
     expect(unknown.status).toBe("unknown");
-    expect(unknown.canCancel).toBe(false);
-    expect(unknown.canWithdraw).toBe(true); // funds remain
+    // Never "Withdraw" (that cancels a possibly live order); a plain two-click
+    // Cancel & withdraw instead, and kept out of needs-withdraw.
+    expect(unknown.canWithdraw).toBe(false);
+    expect(unknown.canCancel).toBe(true); // funds remain
+    expect(selectNeedsWithdraw([unknown])).toEqual([]);
     const unknownEmpty = normalizePriceOrder({ ...PRICE_DOC, rawState: "zzz", orderState: undefined, remainingInputAmount: "0" })!;
     expect(unknownEmpty.canWithdraw).toBe(false);
+    expect(unknownEmpty.canCancel).toBe(false);
   });
 
   it("parses fills and garbage defensively", () => {
@@ -278,7 +285,8 @@ describe("normalizeDcaOrder", () => {
     expect(normalizeDcaOrder({ ...DCA_DOC, state: "new", displayState: "pending_withdraw" })!.status).toBe("withdrawing");
     const unknown = normalizeDcaOrder({ ...DCA_DOC, state: "new", displayState: "new" })!;
     expect(unknown.status).toBe("unknown");
-    expect(unknown.canWithdraw).toBe(true);
+    expect(unknown.canWithdraw).toBe(false);
+    expect(unknown.canCancel).toBe(true);
   });
 });
 
@@ -302,5 +310,95 @@ describe("page helpers", () => {
       "dca",
     ]);
     expect(countActiveDca([dcaWithdrawing, dcaActive, dcaDone, open])).toBe(2);
+  });
+});
+
+describe("amount spent (history Paid)", () => {
+  it("uses price inputUsed, capped at the deposit", () => {
+    const row = normalizePriceOrder({ ...PRICE_DOC, rawState: "cancelled", inputUsed: "250000000", outputAmount: "50000000" })!;
+    expect(row.inputAmountUsed).toBe("250000000");
+    expect(row.inputAmountInitial).toBe("1000000000");
+    expect(normalizePriceOrder({ ...PRICE_DOC, rawState: "cancelled", inputUsed: "9999999999" })!.inputAmountUsed).toBe(
+      "1000000000"
+    );
+  });
+
+  it("derives what it can without inputUsed", () => {
+    expect(normalizePriceOrder({ ...PRICE_DOC, rawState: "fill_success" })!.inputAmountUsed).toBe("1000000000");
+    // Cancelled / expired before any fill: nothing spent.
+    expect(normalizePriceOrder({ ...PRICE_DOC, rawState: "cancelled" })!.inputAmountUsed).toBe("0");
+    expect(normalizePriceOrder({ ...PRICE_DOC, rawState: "expired" })!.inputAmountUsed).toBe("0");
+    // Partly filled without inputUsed: unknown, not guessed.
+    expect(
+      normalizePriceOrder({ ...PRICE_DOC, rawState: "cancelled", outputAmount: "1000" })!.inputAmountUsed
+    ).toBeUndefined();
+    expect(normalizePriceOrder(PRICE_DOC)!.inputAmountUsed).toBeUndefined();
+  });
+
+  it("uses DCA inputAmountUsed, else successful rounds", () => {
+    const cancelled = normalizeDcaOrder({ ...DCA_DOC, state: "cancelled" })!;
+    expect(cancelled.inputAmountUsed).toBe("10000000");
+    expect(cancelled.inputAmountRemaining).toBe("0");
+    const fromEvents = normalizeDcaOrder({
+      ...DCA_DOC,
+      state: "cancelled",
+      inputAmountUsed: undefined,
+      events: [
+        { type: "fill", state: "success", inputAmount: "5000000", outputAmount: "1" },
+        { type: "fill", state: "failed", inputAmount: "5000000" },
+      ],
+    })!;
+    expect(fromEvents.inputAmountUsed).toBe("5000000");
+    expect(
+      normalizeDcaOrder({ ...DCA_DOC, state: "cancelled", inputAmountUsed: undefined, events: [] })!.inputAmountUsed
+    ).toBe("0");
+  });
+});
+
+describe("failures after execution", () => {
+  for (const rawState of ["withdraw_failed", "fill_failed"]) {
+    it(`${rawState} keeps the reported remainder and flags held funds`, () => {
+      const row = normalizePriceOrder({ ...PRICE_DOC, rawState, remainingInputAmount: "400000000" })!;
+      expect(row.status).toBe("failed");
+      expect(row.fundsMayBeHeld).toBe(true);
+      expect(row.inputAmountRemaining).toBe("400000000");
+      // Cancel on a failed order is not a documented transition: no Withdraw.
+      expect(row.canWithdraw).toBe(false);
+      expect(row.canCancel).toBe(false);
+    });
+  }
+
+  it("deposit_failed still zeroes the remainder", () => {
+    const row = normalizePriceOrder({ ...PRICE_DOC, rawState: "deposit_failed" })!;
+    expect(row.fundsMayBeHeld).toBeUndefined();
+    expect(row.inputAmountRemaining).toBe("0");
+  });
+});
+
+describe("locally stopped orders", () => {
+  const open = normalizePriceOrder(PRICE_DOC)!;
+  const dca = normalizeDcaOrder({ ...DCA_DOC, state: "active" })!;
+
+  it("shows a stopped order as needing a withdraw", () => {
+    expect(asStoppedRow(open)).toMatchObject({ status: "needs_withdraw", canWithdraw: true, canCancel: false });
+    expect(asStoppedRow(dca)).toMatchObject({ status: "withdrawing", canWithdraw: true, canCancel: false });
+  });
+
+  it("replaces a lagging open copy and appears in needs-withdraw", () => {
+    const live = liveStoppedRows([open], [open]);
+    expect(live).toHaveLength(1);
+    const rows = withStoppedRows([open], live);
+    expect(rows[0].canWithdraw).toBe(true);
+    expect(selectNeedsWithdraw([...rows, ...live])).toHaveLength(1);
+    // Not in any server list yet: still shown.
+    expect(liveStoppedRows([], [open])).toHaveLength(1);
+  });
+
+  it("defers to Jupiter once it reports the order as withdrawable or finished", () => {
+    const server = normalizePriceOrder({ ...PRICE_DOC, rawState: "ready_to_cancel" })!;
+    expect(liveStoppedRows([server], [open])).toEqual([]);
+    const done = normalizePriceOrder({ ...PRICE_DOC, rawState: "cancelled" })!;
+    expect(liveStoppedRows([done], [open])).toEqual([]);
+    expect(withStoppedRows([done], [])).toEqual([done]);
   });
 });

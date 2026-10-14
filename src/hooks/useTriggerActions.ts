@@ -1,34 +1,48 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction } from "@solana/web3.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { USDC_MINT } from "@/lib/constants";
 import { base64ToBytes, bytesToBase64 } from "@/lib/jupiter/encoding";
-import { isUserRejection } from "@/lib/jupiter/errors";
+import {
+  PRICE_DELAYED_MESSAGE,
+  STOPPED_NOT_WITHDRAWN_MESSAGE,
+  UNKNOWN_ORDER_HOLD_MESSAGE,
+  UNKNOWN_OUTCOME_MESSAGE,
+  UNREADABLE_WITHDRAWAL_MESSAGE,
+  disabledReason,
+  fail,
+  toFailure,
+  withdrawalCheckFailedMessage,
+  type TriggerActionResult,
+  type TriggerActionStage,
+} from "@/lib/jupiter/trigger/actionResult";
 import {
   LANDING_TIMEOUT_MS,
   ensureVault,
   isTriggerApiError,
   triggerFetch,
 } from "@/lib/jupiter/trigger/client";
-import { TRIGGER_ENABLED } from "@/lib/jupiter/trigger/config";
+import { JUPITER_APP_URL, TRIGGER_MODE } from "@/lib/jupiter/trigger/config";
 import { countActiveDca } from "@/lib/jupiter/trigger/normalize";
 import {
   buildCraftBody,
   buildCreateDcaBody,
   buildCreatePriceBody,
-  extractUsdPrice,
   isDepositCacheMiss,
   isWithdrawalCacheMiss,
   parseCraftResponse,
   planDca,
   planLimitOrder,
+  readUsdPrice,
   type DcaInput,
   type DcaPlan,
   type LimitOrderInput,
   type LimitOrderPlan,
+  type PriceRead,
 } from "@/lib/jupiter/trigger/orders";
 import type {
   TriggerCraftResponse,
@@ -40,45 +54,38 @@ import {
   validateWithdrawalTransaction,
 } from "@/lib/jupiter/trigger/validateTx";
 import { getTriggerSession } from "@/store/useTriggerAuthStore";
+import {
+  acquireTriggerBusy,
+  busyReason,
+  clearStoppedOrder,
+  holdNewOrders,
+  isNewOrderHeld,
+  markOrderStopped,
+  releaseTriggerBusy,
+  useTriggerBusyStore,
+  type TriggerPendingAction,
+} from "@/store/useTriggerBusyStore";
 import { triggerOrderKeys } from "@/hooks/useTriggerOrders";
 
-export type TriggerActionErrorCode =
-  /** Client-side check failed before anything was requested or signed. */
-  | "validation"
-  /** User rejected the wallet prompt. */
-  | "rejected"
-  /** Not signed in / session expired: call signIn(). */
-  | "auth"
-  /** The signed payload expired before Jupiter used it: press again (nothing moved). */
-  | "needs_resign"
-  | "rate_limited"
-  /** The proxy could not confirm whether the transaction landed: check orders first. */
-  | "unknown_outcome"
-  /** The transaction Jupiter returned failed our safety checks; nothing was signed. */
-  | "unsafe_tx"
-  /** Another action is running. */
-  | "busy"
-  | "disabled"
-  | "failed";
-
-export type TriggerActionResult =
-  | { ok: true; orderId: string; txSignature?: string }
-  | { ok: false; code: TriggerActionErrorCode; error: string; retryAfterMs?: number };
+export type {
+  TriggerActionErrorCode,
+  TriggerActionResult,
+} from "@/lib/jupiter/trigger/actionResult";
+export type { TriggerPendingAction } from "@/store/useTriggerBusyStore";
 
 export interface PlaceLimitOrderArgs extends LimitOrderInput {
-  /** Current USD price of `base`; fetched from /api/market/prices when omitted. */
+  /**
+   * Current, non-delayed USD price of `base`; fetched from
+   * /api/market/prices when omitted (a delayed answer there is refused).
+   */
   currentPriceUsd?: number | null;
+  /** Live USD price of USDC for the $10 minimum on buys; fetched when omitted. */
+  usdcPriceUsd?: number | null;
 }
 
 export interface PlaceDcaArgs extends DcaInput {
   currentPriceUsd?: number | null;
 }
-
-export type TriggerPendingAction =
-  | { kind: "limit" }
-  | { kind: "dca" }
-  | { kind: "cancel"; orderId: string }
-  | { kind: "withdraw"; orderId: string };
 
 export interface UseTriggerActionsResult {
   placeLimitOrder: (args: PlaceLimitOrderArgs) => Promise<TriggerActionResult>;
@@ -87,14 +94,21 @@ export interface UseTriggerActionsResult {
   cancelOrder: (row: TriggerOrderRow) => Promise<TriggerActionResult>;
   /** Pull funds out of an expired / half-cancelled order (same flow as cancel). */
   withdraw: (row: TriggerOrderRow) => Promise<TriggerActionResult>;
-  /** The running action, or null. */
+  /** The running action (shared by every instance of this hook), or null. */
   pending: TriggerPendingAction | null;
+  /** Some Trigger action is running anywhere in the app. */
   isBusy: boolean;
+  /** Short reason another action cannot start now, or null. */
+  busyReason: string | null;
+  /** New orders are on hold after an order whose outcome is unknown. */
+  newOrdersHeld: boolean;
 }
 
 /** A re-crafted deposit stays usable this long (bounded by its blockhash). */
 const RECRAFT_TTL_MS = 45_000;
 const PRICE_TIMEOUT_MS = 6_000;
+/** After an unknown outcome, refetch the orders again after these delays. */
+const UNKNOWN_REFETCH_DELAYS_MS = [20_000, 65_000];
 
 function solscanAction(signature: string | undefined) {
   if (!signature) return undefined;
@@ -107,48 +121,28 @@ function solscanAction(signature: string | undefined) {
   };
 }
 
-async function fetchUsdPrice(mint: string): Promise<number | null> {
+const jupiterAction = {
+  label: "jup.ag",
+  onClick: () => {
+    window.open(JUPITER_APP_URL, "_blank", "noopener,noreferrer");
+  },
+};
+
+async function fetchPriceRead(mint: string): Promise<PriceRead> {
   try {
     const res = await fetch(`/api/market/prices?ids=${encodeURIComponent(mint)}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(PRICE_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
-    return extractUsdPrice(await res.json(), mint);
+    if (!res.ok) return { kind: "missing" };
+    return readUsdPrice(await res.json(), mint, Date.now());
   } catch {
-    return null;
+    return { kind: "missing" };
   }
 }
 
-type Stage = "prepare" | "sign" | "submit";
-
-const fail = (
-  code: TriggerActionErrorCode,
-  error: string,
-  retryAfterMs?: number
-): TriggerActionResult => ({ ok: false, code, error, ...(retryAfterMs ? { retryAfterMs } : {}) });
-
-/** Maps any thrown error to a typed result. `stage` decides unknown outcomes. */
-function toFailure(err: unknown, stage: Stage): TriggerActionResult {
-  if (isUserRejection(err)) return fail("rejected", "Cancelled in wallet");
-  if (isTriggerApiError(err)) {
-    if (err.code === "auth_required" || err.authError) {
-      return fail("auth", "Your limit-order session expired. Sign in again");
-    }
-    if (err.code === "rate_limited") {
-      return fail("rate_limited", "Jupiter is rate limiting requests. Try again in a few seconds", err.retryAfterMs);
-    }
-    if (err.unknownOutcome || (stage === "submit" && (err.code === "network" || err.code === "timeout"))) {
-      return fail(
-        "unknown_outcome",
-        "Jupiter did not confirm the result. Check your open orders before trying again"
-      );
-    }
-    return fail("failed", err.message);
-  }
-  if (err instanceof Error && err.message) return fail("failed", err.message.slice(0, 200));
-  return fail("failed", "Something went wrong");
-}
+const positive = (v: number | null | undefined): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v > 0;
 
 function deserialize(b64: string): VersionedTransaction | null {
   try {
@@ -161,8 +155,8 @@ function deserialize(b64: string): VersionedTransaction | null {
 export function useTriggerActions(): UseTriggerActionsResult {
   const { publicKey, signTransaction } = useWallet();
   const queryClient = useQueryClient();
-  const [pending, setPending] = useState<TriggerPendingAction | null>(null);
-  const busyRef = useRef(false);
+  const pending = useTriggerBusyStore((s) => s.pending);
+  const holdUntil = useTriggerBusyStore((s) => s.holdUntil);
   const recraftRef = useRef<{ key: string; craft: TriggerCraftResponse; at: number } | null>(null);
   const wallet = publicKey?.toBase58() ?? null;
 
@@ -170,26 +164,30 @@ export function useTriggerActions(): UseTriggerActionsResult {
     if (wallet) void queryClient.invalidateQueries({ queryKey: triggerOrderKeys.all(wallet) });
   }, [queryClient, wallet]);
 
-  /** Shared guards; returns an error result or null when we may proceed. */
-  const precheck = useCallback((): TriggerActionResult | null => {
-    if (!TRIGGER_ENABLED) return fail("disabled", "Limit orders and DCA are currently unavailable");
-    if (!wallet) return fail("validation", "Connect your wallet first");
-    if (!signTransaction) return fail("validation", "This wallet cannot sign transactions");
-    if (getTriggerSession(wallet).status !== "ready") {
-      return fail("auth", "Sign in to limit orders first");
+  /** The outcome is unknown: look again once Jupiter has had time to settle. */
+  const scheduleRefetch = useCallback(() => {
+    if (!wallet) return;
+    for (const ms of UNKNOWN_REFETCH_DELAYS_MS) {
+      setTimeout(() => void queryClient.invalidateQueries({ queryKey: triggerOrderKeys.all(wallet) }), ms);
     }
-    if (busyRef.current) return fail("busy", "Another order action is still running");
-    return null;
-  }, [wallet, signTransaction]);
+  }, [queryClient, wallet]);
 
-  const resolvePrice = useCallback(
-    async (mint: string, given: number | null | undefined, fallback: number | undefined) => {
-      if (typeof given === "number" && Number.isFinite(given) && given > 0) return given;
-      const fetched = await fetchUsdPrice(mint);
-      if (fetched !== null) return fetched;
-      return typeof fallback === "number" && Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+  /** Shared guards; returns an error result or null when we may proceed. */
+  const precheck = useCallback(
+    (action: "new-order" | "manage"): TriggerActionResult | null => {
+      const disabled = disabledReason(TRIGGER_MODE, action);
+      if (disabled) return fail("disabled", disabled);
+      if (!wallet) return fail("validation", "Connect your wallet first");
+      if (!signTransaction) return fail("validation", "This wallet cannot sign transactions");
+      if (getTriggerSession(wallet).status !== "ready") {
+        return fail("auth", "Sign in to limit orders first");
+      }
+      const reason = busyReason(useTriggerBusyStore.getState().pending);
+      if (reason) return fail("busy", reason);
+      if (action === "new-order" && isNewOrderHeld()) return fail("busy", UNKNOWN_ORDER_HOLD_MESSAGE);
+      return null;
     },
-    []
+    [wallet, signTransaction]
   );
 
   /** craft -> validate -> sign -> create, shared by limit and DCA. */
@@ -200,7 +198,7 @@ export function useTriggerActions(): UseTriggerActionsResult {
     ): Promise<TriggerActionResult> => {
       const user = wallet!;
       const sign = signTransaction!;
-      let stage: Stage = "prepare";
+      let stage: TriggerActionStage = "prepare";
       const toastId = toast.loading(`Preparing ${label}...`);
       try {
         const vault = await ensureVault(user);
@@ -287,6 +285,13 @@ export function useTriggerActions(): UseTriggerActionsResult {
         const c = (created ?? {}) as { id?: unknown; txSignature?: unknown };
         const orderId = typeof c.id === "string" ? c.id : "";
         const txSignature = typeof c.txSignature === "string" ? c.txSignature : undefined;
+        if (!orderId) {
+          // A 2xx without an order id (or not JSON at all): cannot confirm.
+          holdNewOrders();
+          scheduleRefetch();
+          toast.warning(UNKNOWN_OUTCOME_MESSAGE, { id: toastId, duration: 20_000 });
+          return fail("unknown_outcome", UNKNOWN_OUTCOME_MESSAGE);
+        }
         toast.success(`${label[0].toUpperCase()}${label.slice(1)} placed`, {
           id: toastId,
           action: solscanAction(txSignature),
@@ -297,24 +302,30 @@ export function useTriggerActions(): UseTriggerActionsResult {
         const result = toFailure(err, stage);
         if (!result.ok) {
           if (result.code === "rejected") toast.dismiss(toastId);
-          else if (result.code === "unknown_outcome") toast.warning(result.error, { id: toastId, duration: 15_000 });
-          else toast.error(result.error, { id: toastId });
+          else if (result.code === "unknown_outcome") {
+            // Never invite an immediate retry: a second press could deposit
+            // twice. Hold new orders briefly and look again.
+            holdNewOrders();
+            scheduleRefetch();
+            toast.warning(result.error, { id: toastId, duration: 20_000 });
+          } else toast.error(result.error, { id: toastId });
         }
         return result;
       }
     },
-    [wallet, signTransaction]
+    [wallet, signTransaction, scheduleRefetch]
   );
 
   const run = useCallback(
     async (action: TriggerPendingAction, body: () => Promise<TriggerActionResult>) => {
-      busyRef.current = true;
-      setPending(action);
+      const token = acquireTriggerBusy(action);
+      if (token === null) {
+        return fail("busy", busyReason(useTriggerBusyStore.getState().pending) ?? "Another order action is running");
+      }
       try {
         return await body();
       } finally {
-        busyRef.current = false;
-        setPending(null);
+        releaseTriggerBusy(token);
         invalidate();
       }
     },
@@ -323,28 +334,48 @@ export function useTriggerActions(): UseTriggerActionsResult {
 
   const placeLimitOrder = useCallback(
     async (args: PlaceLimitOrderArgs): Promise<TriggerActionResult> => {
-      const blocked = precheck();
+      const blocked = precheck("new-order");
       if (blocked) return blocked;
       return run({ kind: "limit" }, async () => {
-        const price = await resolvePrice(args.base.mint, args.currentPriceUsd, args.base.usdPrice);
-        const planned = planLimitOrder(args, { basePriceUsd: price, nowMs: Date.now() });
+        // The side-of-market check needs a live price: a delayed one is
+        // refused, and the token list's price is never used for it.
+        let price: number | null = positive(args.currentPriceUsd) ? args.currentPriceUsd : null;
+        if (price === null) {
+          const read = await fetchPriceRead(args.base.mint);
+          if (read.kind === "stale") return fail("validation", PRICE_DELAYED_MESSAGE);
+          if (read.kind === "fresh") price = read.price;
+        }
+        // Jupiter values the deposit at its own USDC price; falls back to $1.
+        let usdcPrice: number | null = null;
+        if (args.side === "buy") {
+          if (positive(args.usdcPriceUsd)) usdcPrice = args.usdcPriceUsd;
+          else {
+            const read = await fetchPriceRead(USDC_MINT);
+            usdcPrice = read.kind === "missing" ? null : read.price;
+          }
+        }
+        const planned = planLimitOrder(args, { basePriceUsd: price, usdcPriceUsd: usdcPrice, nowMs: Date.now() });
         // Not toasted: the form shows validation errors inline.
         if (!planned.ok) return fail("validation", planned.error);
         return submitOrder(planned.plan, "limit order");
       });
     },
-    [precheck, run, resolvePrice, submitOrder]
+    [precheck, run, submitOrder]
   );
 
   const placeDca = useCallback(
     async (args: PlaceDcaArgs): Promise<TriggerActionResult> => {
-      const blocked = precheck();
+      const blocked = precheck("new-order");
       if (blocked) return blocked;
       return run({ kind: "dca" }, async () => {
-        const price =
-          args.side === "sell"
-            ? await resolvePrice(args.base.mint, args.currentPriceUsd, args.base.usdPrice)
-            : (args.currentPriceUsd ?? args.base.usdPrice ?? null);
+        // Only feeds the $10-per-round minimum (Jupiter allows $0.20 of
+        // tolerance there), so a delayed price or the token list's is fine.
+        let price: number | null = positive(args.currentPriceUsd) ? args.currentPriceUsd : null;
+        if (price === null && args.side === "sell") {
+          const read = await fetchPriceRead(args.base.mint);
+          if (read.kind !== "missing") price = read.price;
+        }
+        if (price === null && positive(args.base.usdPrice)) price = args.base.usdPrice;
         const page = wallet
           ? queryClient.getQueryData<TriggerHistoryPage>(triggerOrderKeys.active(wallet, "dca"))
           : undefined;
@@ -357,13 +388,13 @@ export function useTriggerActions(): UseTriggerActionsResult {
         return submitOrder(planned.plan, "DCA order");
       });
     },
-    [precheck, run, resolvePrice, submitOrder, queryClient, wallet]
+    [precheck, run, submitOrder, queryClient, wallet]
   );
 
   /** cancel step 1 -> validate withdrawal -> sign -> confirm-cancel. */
   const cancelOrWithdraw = useCallback(
     async (row: TriggerOrderRow, mode: "cancel" | "withdraw"): Promise<TriggerActionResult> => {
-      const blocked = precheck();
+      const blocked = precheck("manage");
       if (blocked) return blocked;
       if (mode === "cancel" ? !row.canCancel : !row.canWithdraw) {
         return fail(
@@ -374,7 +405,7 @@ export function useTriggerActions(): UseTriggerActionsResult {
       const user = wallet!;
       const sign = signTransaction!;
       return run({ kind: mode, orderId: row.id }, async () => {
-        let stage: Stage = "prepare";
+        let stage: TriggerActionStage = "prepare";
         let stopped = false;
         const toastId = toast.loading(mode === "cancel" ? "Cancelling order..." : "Preparing withdrawal...");
         try {
@@ -388,14 +419,18 @@ export function useTriggerActions(): UseTriggerActionsResult {
           const cancelRequestId = typeof res?.requestId === "string" ? res.requestId : "";
           const tx = b64 ? deserialize(b64) : null;
           if (!tx || !cancelRequestId) {
-            const error = "Jupiter returned an unreadable withdrawal. Nothing was signed; try Withdraw again";
-            toast.error(error, { id: toastId });
-            return fail("failed", error);
+            markOrderStopped(user, row);
+            toast.error(UNREADABLE_WITHDRAWAL_MESSAGE, { id: toastId, duration: 20_000, action: jupiterAction });
+            return fail("failed", UNREADABLE_WITHDRAWAL_MESSAGE);
           }
           const check = validateWithdrawalTransaction(tx, { user, mints: [row.inputMint, row.outputMint] });
           if (!check.ok) {
-            const error = `Safety check failed, nothing was signed: ${check.reason}. The order is stopped and its funds stay in the Jupiter vault`;
-            toast.error(error, { id: toastId, duration: 15_000 });
+            // The order is already cancelled: keep it listed with a Withdraw
+            // button (a fresh cancel call returns a fresh withdrawal) and point
+            // to jup.ag, which manages the same vault.
+            markOrderStopped(user, row);
+            const error = withdrawalCheckFailedMessage(check.reason);
+            toast.error(error, { id: toastId, duration: 30_000, action: jupiterAction });
             return fail("unsafe_tx", error);
           }
 
@@ -415,6 +450,7 @@ export function useTriggerActions(): UseTriggerActionsResult {
             });
           } catch (err) {
             if (isTriggerApiError(err) && isWithdrawalCacheMiss(err.message)) {
+              markOrderStopped(user, row);
               const error =
                 "The withdrawal expired before Jupiter received it. Your funds are safe in the vault: press Withdraw again";
               toast.warning(error, { id: toastId, duration: 10_000 });
@@ -424,6 +460,7 @@ export function useTriggerActions(): UseTriggerActionsResult {
           }
           const c = (confirmed ?? {}) as { id?: unknown; txSignature?: unknown };
           const txSignature = typeof c.txSignature === "string" ? c.txSignature : undefined;
+          clearStoppedOrder(user, row);
           toast.success(mode === "cancel" ? "Order cancelled, funds returned" : "Funds withdrawn", {
             id: toastId,
             action: solscanAction(txSignature),
@@ -433,25 +470,39 @@ export function useTriggerActions(): UseTriggerActionsResult {
         } catch (err) {
           const result = toFailure(err, stage);
           if (!result.ok) {
+            if (result.code === "unknown_outcome") {
+              // The withdrawal may have landed: do not offer it again yet.
+              scheduleRefetch();
+              toast.warning(result.error, { id: toastId, duration: 20_000 });
+              return result;
+            }
+            if (stopped) markOrderStopped(user, row);
             if (result.code === "rejected" && stopped) {
-              const error =
-                "Order stopped, but its funds are still in the Jupiter vault. Press Withdraw to get them back";
-              toast.warning(error, { id: toastId, duration: 12_000 });
-              return fail("rejected", error);
+              toast.warning(STOPPED_NOT_WITHDRAWN_MESSAGE, { id: toastId, duration: 12_000 });
+              return fail("rejected", STOPPED_NOT_WITHDRAWN_MESSAGE);
             }
             if (result.code === "rejected") toast.dismiss(toastId);
-            else if (result.code === "unknown_outcome") toast.warning(result.error, { id: toastId, duration: 15_000 });
             else toast.error(result.error, { id: toastId });
           }
           return result;
         }
       });
     },
-    [precheck, run, wallet, signTransaction]
+    [precheck, run, wallet, signTransaction, scheduleRefetch]
   );
 
   const cancelOrder = useCallback((row: TriggerOrderRow) => cancelOrWithdraw(row, "cancel"), [cancelOrWithdraw]);
   const withdraw = useCallback((row: TriggerOrderRow) => cancelOrWithdraw(row, "withdraw"), [cancelOrWithdraw]);
 
-  return { placeLimitOrder, placeDca, cancelOrder, withdraw, pending, isBusy: pending !== null };
+  return {
+    placeLimitOrder,
+    placeDca,
+    cancelOrder,
+    withdraw,
+    pending,
+    isBusy: pending !== null,
+    busyReason: busyReason(pending),
+    // Re-rendered when the store clears holdUntil (timer in holdNewOrders).
+    newOrdersHeld: holdUntil > 0,
+  };
 }

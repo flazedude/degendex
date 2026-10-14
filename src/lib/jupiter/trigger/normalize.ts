@@ -160,13 +160,28 @@ function computeCanWithdraw(status: TriggerOrderStatus, remaining: string): bool
     case "expired":
       // Expired orders never auto-refund. ready_expire is caught by the caller.
       return isPositive(remaining);
-    case "unknown":
-      // A new upstream state: offer Withdraw only if funds clearly remain (the
-      // server refuses if the state is not withdrawable; nothing is lost).
-      return isPositive(remaining);
+    // "unknown" is deliberately not withdrawable: Withdraw calls the cancel
+    // endpoint, which would stop an order that may still be live. Unknown rows
+    // with funds get a plainly labelled two-click "Cancel & withdraw" instead.
     default:
       return false;
   }
+}
+
+/** Price raw states where the swap ran but a later step failed. */
+const PRICE_FAILED_AFTER_EXECUTION: ReadonlySet<string> = new Set(["withdraw_failed", "fill_failed"]);
+
+/** Cancel is offered for live orders, and for unknown states that hold funds. */
+function computeCanCancel(info: StatusInfo, remaining: string): boolean {
+  if (info.status === "unknown") return isPositive(remaining);
+  return info.canCancel;
+}
+
+const isSuccessfulFill = (e: TriggerOrderEvent) =>
+  e.type === "fill" && (e.state === undefined || e.state === "success");
+
+function minAmount(a: string, b: string): string {
+  return BigInt(a) < BigInt(b) ? a : b;
 }
 
 function parsePriceEvents(v: unknown): TriggerOrderEvent[] {
@@ -208,11 +223,45 @@ function parseDcaEvents(v: unknown): TriggerOrderEvent[] {
 }
 
 function successfulFillOutputs(events: TriggerOrderEvent[]): string | null {
-  return sumAmounts(
-    events
-      .filter((e) => e.type === "fill" && (e.state === undefined || e.state === "success"))
-      .map((e) => e.outputAmount)
-  );
+  return sumAmounts(events.filter(isSuccessfulFill).map((e) => e.outputAmount));
+}
+
+/**
+ * Input spent by a price order. Uses inputUsed when reported; a filled order
+ * spent everything; a finished order with no fill and no output spent nothing.
+ * Otherwise unknown (fill events do not reliably carry the input amount).
+ */
+function priceInputUsed(
+  raw: Obj,
+  status: TriggerOrderStatus,
+  initial: string,
+  events: TriggerOrderEvent[],
+  output: string | null
+): string | undefined {
+  const reported = amount(raw.inputUsed);
+  if (reported !== undefined) return minAmount(reported, initial);
+  if (status === "filled") return initial;
+  const finished = status === "cancelled" || status === "expired" || status === "failed";
+  const noOutput = output === null || !isPositive(output);
+  if (finished && noOutput && !events.some(isSuccessfulFill)) return "0";
+  return undefined;
+}
+
+/** Input spent by a DCA: inputAmountUsed, else the sum of successful rounds. */
+function dcaInputUsed(
+  raw: Obj,
+  status: TriggerOrderStatus,
+  initial: string,
+  events: TriggerOrderEvent[]
+): string | undefined {
+  const reported = amount(raw.inputAmountUsed);
+  if (reported !== undefined) return minAmount(reported, initial);
+  const fills = events.filter(isSuccessfulFill);
+  const summed = sumAmounts(fills.map((e) => e.amount));
+  if (summed !== null) return minAmount(summed, initial);
+  if (status === "filled") return initial;
+  if ((status === "cancelled" || status === "failed") && fills.length === 0) return "0";
+  return undefined;
 }
 
 /** Normalises one GET /orders/history item. Returns null if unusable. */
@@ -229,8 +278,12 @@ export function normalizePriceOrder(raw: unknown): TriggerOrderRow | null {
 
   const initial = amount(raw.initialInputAmount) ?? "0";
   const remainingReported = amount(raw.remainingInputAmount) ?? initial;
-  const remaining = TERMINAL.has(info.status) ? "0" : remainingReported;
+  // Executed, then a later step failed: funds may still be held, so keep the
+  // amount Jupiter reports instead of zeroing it.
+  const fundsMayBeHeld = !!rawState && PRICE_FAILED_AFTER_EXECUTION.has(rawState);
+  const remaining = TERMINAL.has(info.status) && !fundsMayBeHeld ? "0" : remainingReported;
   const events = parsePriceEvents(raw.events);
+  const output = amount(raw.outputAmount) ?? successfulFillOutputs(events);
 
   const row: TriggerOrderRow = {
     id,
@@ -241,13 +294,16 @@ export function normalizePriceOrder(raw: unknown): TriggerOrderRow | null {
     outputMint,
     inputAmountInitial: initial,
     inputAmountRemaining: remaining,
-    outputAmountReceived: amount(raw.outputAmount) ?? successfulFillOutputs(events),
+    outputAmountReceived: output,
     createdAt: timeMs(raw.createdAt) ?? 0,
     updatedAt: timeMs(raw.updatedAt) ?? timeMs(raw.createdAt) ?? 0,
     events,
-    canCancel: info.canCancel,
+    canCancel: computeCanCancel(info, remaining),
     canWithdraw: rawState === "ready_expire" ? false : computeCanWithdraw(info.status, remaining),
   };
+  const used = priceInputUsed(raw, info.status, initial, events, output);
+  if (used !== undefined) row.inputAmountUsed = used;
+  if (fundsMayBeHeld) row.fundsMayBeHeld = true;
   const triggerPriceUsd = num(raw.triggerPriceUsd);
   if (triggerPriceUsd !== undefined) row.triggerPriceUsd = triggerPriceUsd;
   if (raw.triggerCondition === "above" || raw.triggerCondition === "below") {
@@ -295,9 +351,11 @@ export function normalizeDcaOrder(raw: unknown): TriggerOrderRow | null {
     createdAt: timeMs(raw.createdAt) ?? 0,
     updatedAt: timeMs(raw.updatedAt) ?? timeMs(raw.createdAt) ?? 0,
     events,
-    canCancel: info.canCancel,
+    canCancel: computeCanCancel(info, remaining),
     canWithdraw: computeCanWithdraw(info.status, remaining),
   };
+  const used = dcaInputUsed(raw, info.status, initial, events);
+  if (used !== undefined) row.inputAmountUsed = used;
   const orderCount = num(raw.numberOfRounds);
   if (orderCount !== undefined) row.orderCount = orderCount;
   const roundsFilled = num(raw.roundsFilled);
@@ -355,4 +413,46 @@ export function countActiveDca(rows: readonly TriggerOrderRow[]): number {
   return rows.filter(
     (r) => r.family === "dca" && !TERMINAL.has(r.status) && r.status !== "expired"
   ).length;
+}
+
+// --- Locally stopped orders ---------------------------------------------------
+
+const TERMINAL_OR_WITHDRAWABLE = (r: TriggerOrderRow) => TERMINAL.has(r.status) || r.canWithdraw;
+const rowKeyOf = (r: Pick<TriggerOrderRow, "family" | "id">) => `${r.family}:${r.id}`;
+
+/**
+ * How a row looks right after its cancel step went through but the
+ * withdrawal did not (wallet rejected, safety check failed, ...): the order no
+ * longer fills and its funds wait in the vault for Withdraw.
+ */
+export function asStoppedRow(row: TriggerOrderRow): TriggerOrderRow {
+  return {
+    ...row,
+    status: row.family === "dca" ? "withdrawing" : "needs_withdraw",
+    canCancel: false,
+    canWithdraw: true,
+    nextFillAt: undefined,
+  };
+}
+
+/**
+ * Stopped rows still worth showing: dropped as soon as Jupiter's own lists
+ * report the order as finished or withdrawable (its copy is then the truth).
+ */
+export function liveStoppedRows(
+  server: readonly TriggerOrderRow[],
+  stopped: readonly TriggerOrderRow[]
+): TriggerOrderRow[] {
+  const settled = new Set(server.filter(TERMINAL_OR_WITHDRAWABLE).map(rowKeyOf));
+  return stopped.filter((r) => !settled.has(rowKeyOf(r))).map(asStoppedRow);
+}
+
+/** Replaces lagging server copies (still "open") with their stopped version. */
+export function withStoppedRows(
+  rows: readonly TriggerOrderRow[],
+  live: readonly TriggerOrderRow[]
+): TriggerOrderRow[] {
+  if (live.length === 0) return rows as TriggerOrderRow[];
+  const byKey = new Map(live.map((r) => [rowKeyOf(r), r]));
+  return rows.map((r) => byKey.get(rowKeyOf(r)) ?? r);
 }

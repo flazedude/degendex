@@ -225,11 +225,23 @@ export interface TriggerOrderRow {
   inputAmountInitial: string;
   /**
    * Base units still held in the vault for this order. Forced to "0" for
-   * cancelled / filled / failed orders (DCA does not zero it upstream).
+   * cancelled / filled / failed orders (DCA does not zero it upstream), except
+   * failures after execution (fundsMayBeHeld).
    */
   inputAmountRemaining: string;
   /** Base units of output received so far, or null when not reported. */
   outputAmountReceived: string | null;
+  /**
+   * Base units of input actually spent by fills (price inputUsed / DCA
+   * inputAmountUsed, else derived). undefined when not known.
+   */
+  inputAmountUsed?: string;
+  /**
+   * The order executed but Jupiter reports a failure afterwards
+   * (withdraw_failed / fill_failed): output or leftover input may still sit in
+   * the vault. inputAmountRemaining keeps the reported value for these.
+   */
+  fundsMayBeHeld?: boolean;
   triggerPriceUsd?: number;
   triggerCondition?: "above" | "below";
   triggerMint?: string;

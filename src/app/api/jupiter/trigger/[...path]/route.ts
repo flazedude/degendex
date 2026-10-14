@@ -8,11 +8,19 @@
 //   authenticated routes and never logged, cached or echoed. Cookies and every
 //   other incoming header are dropped (fresh upstream headers + x-api-key).
 // - Every response is Cache-Control: no-store.
+// - Kill switch (NEXT_PUBLIC_DISABLE_TRIGGER, re-read on every request):
+//   "new-orders-off" 404s only the routes that start or change an order
+//   (craft, create, PATCH) so cancel / withdraw keep working; "off" 404s all.
 // - A Trigger JWT rejection (401 {"error":"Unauthorized"}) comes back as
 //   401 { error, authError: true } so the client knows to refresh; a gateway
 //   401/403 (bad or under-privileged API key) becomes a 502 config error.
 import type { NextRequest } from "next/server";
-import { TRIGGER_ENABLED } from "@/lib/jupiter/trigger/config";
+import {
+  NEW_ORDERS_PAUSED_MESSAGE,
+  TRIGGER_OFF_MESSAGE,
+  isTriggerRouteAllowed,
+  triggerModeFromEnv,
+} from "@/lib/jupiter/trigger/config";
 import {
   isTriggerAuthRejection,
   matchTriggerRoute,
@@ -55,11 +63,22 @@ function isGatewayShape(body: unknown): boolean {
 }
 
 async function handle(method: TriggerMethod, req: NextRequest, ctx: RouteContext) {
-  if (!TRIGGER_ENABLED) return jsonResponse({ error: "Not found" }, 404);
+  // Read per request (not a module constant) so a server-side change of the
+  // flag applies without a rebuild.
+  const mode = triggerModeFromEnv();
+  if (mode === "off") {
+    return jsonResponse(
+      { error: `Limit orders and DCA are turned off here. ${TRIGGER_OFF_MESSAGE}`, disabled: true },
+      404
+    );
+  }
 
   const { path = [] } = await ctx.params;
   const route = matchTriggerRoute(method, path);
   if (!route) return jsonResponse({ error: "Not found" }, 404);
+  if (!isTriggerRouteAllowed(mode, route.name)) {
+    return jsonResponse({ error: NEW_ORDERS_PAUSED_MESSAGE, disabled: true }, 404);
+  }
 
   let qs = "";
   if (route.query) {

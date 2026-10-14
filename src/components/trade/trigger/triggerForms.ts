@@ -13,7 +13,7 @@ import {
   MAX_ACTIVE_DCA,
   TRIGGER_MIN_USD,
 } from "@/lib/jupiter/trigger/config";
-import { planDca, planLimitOrder, type OrderSide } from "@/lib/jupiter/trigger/orders";
+import { isNearMinimum, planDca, planLimitOrder, type OrderSide } from "@/lib/jupiter/trigger/orders";
 import type { TokenInfo } from "@/lib/tokens/types";
 import { distancePct, isStableToken } from "./triggerFormat";
 
@@ -78,11 +78,20 @@ export function estimateReceive(side: OrderSide, payUi: string, triggerPriceUsd:
   return formatTokenAmount(out.toFixed(), { significant: 6, maxDecimals: side === "buy" ? 6 : 2 });
 }
 
-/** USD value of what is paid, or null when no price (USDC counts as $1). */
-export function payUsd(side: OrderSide, payUi: string, marketPriceUsd: number | null): number | null {
+/**
+ * USD value of what is paid, or null when no price. USDC (buys) is valued at
+ * its live price when known, else $1.
+ */
+export function payUsd(
+  side: OrderSide,
+  payUi: string,
+  marketPriceUsd: number | null,
+  usdcPriceUsd?: number | null
+): number | null {
   const pay = safeBigNumber(payUi);
   if (!pay.isFinite() || pay.lte(0)) return null;
-  const unit = side === "buy" ? 1 : marketPriceUsd;
+  const usdc = typeof usdcPriceUsd === "number" && Number.isFinite(usdcPriceUsd) && usdcPriceUsd > 0 ? usdcPriceUsd : 1;
+  const unit = side === "buy" ? usdc : marketPriceUsd;
   if (unit === null || !(unit > 0)) return null;
   const v = pay.times(unit).toNumber();
   return Number.isFinite(v) ? v : null;
@@ -106,6 +115,8 @@ export interface LimitFormInput {
   marketPriceUsd: number | null;
   /** True when the live price is delayed (stale cache or failed refresh). */
   marketStale?: boolean;
+  /** Live USD price of USDC (buys pay USDC); $1 when unknown. */
+  usdcPriceUsd?: number | null;
   /** Pay-token balance in base units, undefined while unknown. */
   balanceRaw: string | undefined;
 }
@@ -118,6 +129,8 @@ export interface LimitFormView {
   estReceive: string | null;
   depositUsd: number | null;
   belowMinimum: boolean;
+  /** Clears the $10 minimum by less than 2%: suggest a little more. */
+  nearMinimum: boolean;
   insufficient: boolean;
   /** Why the order cannot be placed; null when it can. */
   blocker: string | null;
@@ -130,13 +143,16 @@ const NEAR_MARKET_PCT = 0.5;
 /** Further than this from market is flagged as "may never fill". */
 const FAR_MARKET_PCT = 50;
 
+/** planLimitOrder's "buy must be below / sell must be above market" error. */
+const SIDE_OF_MARKET_ERROR = /limit must be (below|above) the current/;
+
 export function limitFormView(input: LimitFormInput): LimitFormView {
   const { base, side, payAmount, marketPriceUsd } = input;
   const pay = payToken(base, side);
   const payRaw = toBaseUnits(payAmount, pay.decimals);
   const triggerPriceUsd = parsePrice(input.triggerPrice);
   const dist = distancePct(triggerPriceUsd, marketPriceUsd);
-  const depositUsd = payUsd(side, payAmount, marketPriceUsd);
+  const depositUsd = payUsd(side, payAmount, marketPriceUsd, input.usdcPriceUsd);
   const insufficient = exceeds(payRaw, input.balanceRaw);
   const warnings: string[] = [];
 
@@ -155,9 +171,12 @@ export function limitFormView(input: LimitFormInput): LimitFormView {
         expiresInMs: expiryMs(input.expiry),
       },
       // nowMs only feeds expiresAt, which the form does not use.
-      { basePriceUsd: marketPriceUsd, nowMs: 0 }
+      { basePriceUsd: marketPriceUsd, usdcPriceUsd: input.usdcPriceUsd ?? null, nowMs: 0 }
     );
-    if (!planned.ok) blocker = planned.error;
+    // With a delayed price the side-of-market verdict is not trusted either
+    // way: the order hook re-checks against a live price on submit (and
+    // refuses with "Price is delayed" when there is none).
+    if (!planned.ok && !(input.marketStale && SIDE_OF_MARKET_ERROR.test(planned.error))) blocker = planned.error;
   }
 
   if (dist !== null && blocker === null) {
@@ -180,6 +199,7 @@ export function limitFormView(input: LimitFormInput): LimitFormView {
     estReceive: payRaw ? estimateReceive(side, payAmount, triggerPriceUsd) : null,
     depositUsd,
     belowMinimum: depositUsd !== null && depositUsd < TRIGGER_MIN_USD,
+    nearMinimum: isNearMinimum(depositUsd, TRIGGER_MIN_USD),
     insufficient,
     blocker,
     warnings,
@@ -234,6 +254,8 @@ export interface DcaFormView {
   durationSeconds: number | null;
   insufficient: boolean;
   belowMinimum: boolean;
+  /** Each round clears the $10 minimum by less than 2%. */
+  nearMinimum: boolean;
   atCap: boolean;
   blocker: string | null;
   warnings: string[];
@@ -296,6 +318,7 @@ export function dcaFormView(input: DcaFormInput): DcaFormView {
     durationSeconds: validCount && secs !== null ? (count! - 1) * secs : null,
     insufficient,
     belowMinimum: perRoundUsd !== null && perRoundUsd < TRIGGER_MIN_USD,
+    nearMinimum: isNearMinimum(perRoundUsd, TRIGGER_MIN_USD),
     atCap,
     blocker,
     warnings,
