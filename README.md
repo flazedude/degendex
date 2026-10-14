@@ -1,7 +1,8 @@
 # DEGN DEX
 
 A Solana trading front end: best-price swaps through Jupiter's meta-aggregator,
-meme and new-pair discovery, a Raydium pool explorer, and TradingView charts.
+a trade terminal with on-chain charts, limit orders and DCA, meme and new-pair
+discovery, and a Raydium pool explorer.
 
 DEGN DEX does not run its own on-chain exchange program. It routes trades through
 existing liquidity (Jupiter, which aggregates Raydium, Orca, Meteora, RFQ market
@@ -15,8 +16,8 @@ makers and more), so it inherits their depth and audited contracts.
 | Memes | Live, read-only. New pump.fun / Raydium pairs from DexScreener, with a one-click link into Swap. |
 | Explore | Live, read-only. Top Solana pairs from DexScreener. |
 | Liquidity | Pool explorer is live (Raydium API). Deposits open on Raydium; in-app deposits are on the roadmap. |
-| Trade terminal | Charts (TradingView, CEX prices) plus market buy/sell via Swap for verified Solana tokens. On-chain order book and limit orders are on the roadmap. |
-| Charts | TradingView embed. |
+| Trade terminal | Solana-only markets (curated verified tokens plus search for any token) with live prices, on-chain candles and recent trades (GeckoTerminal), market orders in place (same Jupiter engine as Swap), wallet balances. Limit orders and time-based DCA through the Jupiter Trigger API v2 (beta, see [Limit orders and DCA](#limit-orders-and-dca)). |
+| Charts | TradingView embed (CEX prices). |
 | Portfolio | Coming soon. |
 
 ## Getting started
@@ -35,6 +36,8 @@ pnpm dev                     # http://localhost:3000
 | `JUPITER_REFERRAL_ACCOUNT` / `JUPITER_REFERRAL_FEE_BPS` | server | Optional integrator fee (50-255 bps) through the [Jupiter Referral Program](https://referral.jup.ag/). Set both or neither, and create referral token accounts for the fee mints (at least SOL and USDC) or the fee is silently skipped. |
 | `NEXT_PUBLIC_HELIUS_RPC_URL` | browser | Solana RPC for wallet balances. Use a provider key restricted to your domains; the public endpoint rate-limits hard. |
 | `NEXT_PUBLIC_DEGN_MINT` | browser | Optional DEGN token mint, added to the swap token list. |
+| `CG_DEMO_API_KEY` | server | Free CoinGecko Demo key ([coingecko.com/en/api](https://www.coingecko.com/en/api)) for terminal candles and trades (100 calls/min). Without it the app uses keyless GeckoTerminal (~10 calls/min per server IP), which is enough for local dev only. |
+| `NEXT_PUBLIC_DISABLE_TRIGGER` | browser | Set to `1` to switch off limit orders and DCA (kill switch). |
 
 ### Scripts
 
@@ -71,6 +74,31 @@ per IP), so a single client can't use up the shared quota. Leave
 `/api/jupiter/execute` out of it: throttling a signed transaction only hurts the
 user.
 
+Terminal market data (`/api/markets`, `/api/market/...`) is cached on the
+server and at the CDN, so upstream calls stay roughly constant however many
+people have the terminal open. When an upstream is rate-limited the routes serve
+the last good data and the UI marks it as delayed.
+
+## Limit orders and DCA
+
+Limit orders and DCA use the Jupiter Trigger API v2, the same system as
+jup.ag's own limit orders. It is **custodial**: when a user places an order,
+the tokens for it move from their wallet into a Jupiter vault (custody by Privy)
+until the order fills or is cancelled, and withdrawing needs Jupiter's service.
+Users see a one-time consent screen that says this before their first order.
+
+- Signing in to the Trigger API is one wallet signature (a message, or a memo
+  transaction that can never land, for Ledger). The access token lives in memory
+  for 15 minutes; the refresh token lives in `sessionStorage` and dies with the
+  tab.
+- Every transaction (sign-in, deposit, withdrawal) is decoded and checked in the
+  browser before the wallet is asked to sign it.
+- Minimum $10 per order (per round for DCA). Expired orders do not refund
+  automatically: they show a Withdraw button under Open orders.
+- DEGN DEX takes no fee on these orders (the Trigger API has no integrator fee).
+- The API is in beta. Do one end-to-end test with a small amount before relying
+  on it, and use `NEXT_PUBLIC_DISABLE_TRIGGER=1` if something breaks.
+
 ## How a swap works
 
 1. The browser asks `/api/jupiter/order` (our server route) for a quote. The route
@@ -99,8 +127,8 @@ src/
 ## Roadmap
 
 1. **Swap polish**: referral fee live, recent-swap history, quote countdown.
-2. **Real trade terminal**: limit orders and DCA (Jupiter Trigger API), on-chain
-   OHLCV charts, drop non-Solana markets; perps (Drift or Jupiter Perps) later.
+2. **Trade terminal, next steps**: take-profit/stop-loss (OCO) orders,
+   price-conditional DCA, streaming trades; perps (Drift or Jupiter Perps) later.
 3. **Liquidity and portfolio**: in-app Raydium deposits/withdrawals (CPMM and CLMM
    ranges) with the Raydium SDK v2; portfolio from wallet token accounts, prices and
    transaction history.
