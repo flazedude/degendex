@@ -5,8 +5,8 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction, type PublicKey } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import { toast } from "sonner";
-import { useSwapStore } from "@/store/useSwapStore";
-import { useSettingsStore } from "@/store/useSettingsStore";
+import { useSwapStore, type TokenInfo } from "@/store/useSwapStore";
+import { useSettingsStore, type SlippageSetting } from "@/store/useSettingsStore";
 import {
   isSwapBlocked,
   usePendingSwapStore,
@@ -46,7 +46,7 @@ const PENDING_MAX_MS = 90_000;
 const STATUS_POLL_MS = 2_000;
 const RPC_TIMEOUT_MS = 8_000;
 
-interface QuoteRequest {
+export interface QuoteRequest {
   key: string;
   inputMint: string;
   outputMint: string;
@@ -225,18 +225,71 @@ function solscanAction(signature: string | undefined) {
   };
 }
 
+/**
+ * Where a swap's pair and amount come from. Without one, useSwap reads the
+ * Swap page's store; the trade terminal passes its own local state so it never
+ * changes the Swap page's selected pair.
+ */
+export interface SwapSource {
+  inputToken: TokenInfo;
+  outputToken: TokenInfo;
+  /** Exact decimal string typed by the user (never a float). */
+  inputAmount: string;
+  setInputAmount: (v: string) => void;
+}
+
+/** The provided source, else the Swap page's store (no-argument behaviour). */
+export function resolveSwapSource(
+  source: SwapSource | undefined,
+  store: SwapSource
+): SwapSource {
+  return source ?? store;
+}
+
+/**
+ * The quote request for a pair and amount, or null when there is nothing to
+ * quote (empty / invalid amount, or the same mint on both sides). The key
+ * identifies every input the quote depends on.
+ */
+export function buildQuoteRequest(args: {
+  inputMint: string;
+  outputMint: string;
+  /** Base units, from toBaseUnits. */
+  rawAmount: string | null;
+  taker: string | undefined;
+  slippage: SlippageSetting;
+}): QuoteRequest | null {
+  const { inputMint, outputMint, rawAmount, taker, slippage } = args;
+  if (!rawAmount || inputMint === outputMint) return null;
+  const slippageBps = slippage === "auto" ? undefined : slippage;
+  return {
+    key: [inputMint, outputMint, rawAmount, taker ?? "", slippageBps ?? "auto"].join("|"),
+    inputMint,
+    outputMint,
+    amount: rawAmount,
+    taker,
+    slippageBps,
+  };
+}
+
 export interface ExecuteSwapOptions {
   /** Price impact (percent) the user explicitly accepted for an extreme quote. */
   acceptedImpactPct?: number;
 }
 
-export function useSwap() {
+export function useSwap(source?: SwapSource) {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
-  const inputToken = useSwapStore((s) => s.inputToken);
-  const outputToken = useSwapStore((s) => s.outputToken);
-  const inputAmount = useSwapStore((s) => s.inputAmount);
-  const setInputAmount = useSwapStore((s) => s.setInputAmount);
+  const storeInputToken = useSwapStore((s) => s.inputToken);
+  const storeOutputToken = useSwapStore((s) => s.outputToken);
+  const storeInputAmount = useSwapStore((s) => s.inputAmount);
+  const storeSetInputAmount = useSwapStore((s) => s.setInputAmount);
+  const { inputToken, outputToken, inputAmount, setInputAmount } = resolveSwapSource(source, {
+    inputToken: storeInputToken,
+    outputToken: storeOutputToken,
+    inputAmount: storeInputAmount,
+    setInputAmount: storeSetInputAmount,
+  });
   const slippage = useSettingsStore((s) => s.slippage);
   const refreshBalances = useRefreshBalances();
 
@@ -246,24 +299,17 @@ export function useSwap() {
     [inputAmount, inputToken.decimals]
   );
 
-  const request = useMemo<QuoteRequest | null>(() => {
-    if (!rawAmount || inputToken.mint === outputToken.mint) return null;
-    const slippageBps = slippage === "auto" ? undefined : slippage;
-    return {
-      key: [
-        inputToken.mint,
-        outputToken.mint,
+  const request = useMemo(
+    () =>
+      buildQuoteRequest({
+        inputMint: inputToken.mint,
+        outputMint: outputToken.mint,
         rawAmount,
-        taker ?? "",
-        slippageBps ?? "auto",
-      ].join("|"),
-      inputMint: inputToken.mint,
-      outputMint: outputToken.mint,
-      amount: rawAmount,
-      taker,
-      slippageBps,
-    };
-  }, [rawAmount, inputToken.mint, outputToken.mint, taker, slippage]);
+        taker,
+        slippage,
+      }),
+    [rawAmount, inputToken.mint, outputToken.mint, taker, slippage]
+  );
 
   const [result, setResult] = useState<QuoteResult | null>(null);
   const [inflightKey, setInflightKey] = useState<string | null>(null);
@@ -282,9 +328,9 @@ export function useSwap() {
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchingRef = useRef(false);
   const runQuoteRef = useRef<(req: QuoteRequest) => Promise<void>>(async () => {});
-  const latestRef = useRef({ request, result, inputToken, outputToken });
+  const latestRef = useRef({ request, result, inputToken, outputToken, setInputAmount });
   useEffect(() => {
-    latestRef.current = { request, result, inputToken, outputToken };
+    latestRef.current = { request, result, inputToken, outputToken, setInputAmount };
   });
 
   /** Invalidates any in-flight quote so it can no longer set state. */
@@ -675,12 +721,12 @@ export function useSwap() {
           });
           // The order's requestId is consumed: never show or reuse it again.
           setResult(null);
-          setInputAmount("");
+          latestRef.current.setInputAmount("");
         } else if (isUnknownExecuteOutcome(data.code)) {
           // It may still land: never re-sign this requestId, and block new
           // swaps until the outcome is known (or can no longer change).
           setResult(null);
-          setInputAmount("");
+          latestRef.current.setInputAmount("");
           toast.warning(
             signature
               ? "Swap status unknown. Checking whether it landed..."
@@ -737,7 +783,6 @@ export function useSwap() {
       runQuote,
       scheduleRetry,
       refreshBalances,
-      setInputAmount,
       watchPending,
     ]
   );
