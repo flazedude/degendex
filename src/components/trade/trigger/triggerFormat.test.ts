@@ -21,6 +21,7 @@ import {
   pageRangeText,
   paidSummary,
   priceToInput,
+  remainderNeedsAttention,
   roundsText,
   rowSide,
   solscanTx,
@@ -218,8 +219,10 @@ describe("failed after execution, unknown states", () => {
 });
 
 describe("paidSummary (history Paid)", () => {
+  const cancelled = { status: "cancelled" as const, state: "cancelled", inputAmountRemaining: "0", canCancel: false };
+
   it("shows what was spent and what went back", () => {
-    expect(paidSummary(row({ inputAmountUsed: "25000000" }))).toEqual({
+    expect(paidSummary(row({ ...cancelled, inputAmountUsed: "25000000" }))).toEqual({
       paid: "25000000",
       deposited: "100000000",
       remainder: "75000000",
@@ -234,6 +237,50 @@ describe("paidSummary (history Paid)", () => {
   it("says where the remainder is", () => {
     expect(paidSummary(row({ inputAmountUsed: "0", canWithdraw: true })).remainderLabel).toBe("in vault");
     expect(paidSummary(row({ inputAmountUsed: "0", fundsMayBeHeld: true })).remainderLabel).toBe("may be held");
+    expect(paidSummary(row({ ...cancelled, inputAmountUsed: "0" })).remainderLabel).toBe("refunded");
+    expect(
+      paidSummary(row({ status: "filled", state: "fill_success", inputAmountRemaining: "0", inputAmountUsed: "90000000" }))
+        .remainderLabel
+    ).toBe("refunded");
+  });
+
+  it("keeps an expired order's remainder in the vault until it is withdrawn", () => {
+    const expired = { status: "expired" as const, inputAmountUsed: "40000000", canCancel: false };
+    // Withdrawable expired order.
+    expect(
+      paidSummary(row({ ...expired, state: "expired", inputAmountRemaining: "60000000", canWithdraw: true }))
+    ).toMatchObject({ remainder: "60000000", remainderLabel: "in vault" });
+    // ready_expire: Withdraw not offered yet, but the funds are still there.
+    expect(
+      paidSummary(row({ ...expired, state: "ready_expire", inputAmountRemaining: "60000000", canWithdraw: false }))
+    ).toMatchObject({ remainder: "60000000", remainderLabel: "in vault" });
+    // Already withdrawn: nothing remaining.
+    expect(
+      paidSummary(row({ ...expired, state: "expired", inputAmountRemaining: "0", canWithdraw: false })).remainderLabel
+    ).toBe("refunded");
+  });
+
+  it("a failed deposit has no remainder", () => {
+    const s = paidSummary(
+      row({ status: "failed", state: "deposit_failed", inputAmountRemaining: "0", inputAmountUsed: "0", canCancel: false })
+    );
+    expect(s).toEqual({
+      paid: null,
+      deposited: "100000000",
+      remainder: null,
+      remainderLabel: "not deposited",
+      notDeposited: true,
+    });
+  });
+
+  it("never calls a live or failed order's rest refunded", () => {
+    expect(paidSummary(row({ inputAmountUsed: "10000000" })).remainderLabel).toBe("unfilled");
+    expect(
+      paidSummary(row({ status: "failed", state: "failed", inputAmountRemaining: "0", inputAmountUsed: "0" })).remainderLabel
+    ).toBe("unspent");
+    expect(remainderNeedsAttention("in vault")).toBe(true);
+    expect(remainderNeedsAttention("may be held")).toBe(true);
+    expect(remainderNeedsAttention("refunded")).toBe(false);
   });
 
   it("only knows the deposit when Jupiter does not report the amount spent", () => {

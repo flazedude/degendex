@@ -15,6 +15,7 @@ import {
   UNREADABLE_WITHDRAWAL_MESSAGE,
   disabledReason,
   fail,
+  isDefiniteCancelRejection,
   toFailure,
   withdrawalCheckFailedMessage,
   type TriggerActionResult,
@@ -58,10 +59,12 @@ import {
   acquireTriggerBusy,
   busyReason,
   clearStoppedOrder,
+  getActiveTriggerPending,
   holdNewOrders,
   isNewOrderHeld,
   markOrderStopped,
   releaseTriggerBusy,
+  useActiveTriggerPending,
   useTriggerBusyStore,
   type TriggerPendingAction,
 } from "@/store/useTriggerBusyStore";
@@ -155,7 +158,8 @@ function deserialize(b64: string): VersionedTransaction | null {
 export function useTriggerActions(): UseTriggerActionsResult {
   const { publicKey, signTransaction } = useWallet();
   const queryClient = useQueryClient();
-  const pending = useTriggerBusyStore((s) => s.pending);
+  // Null once a lock lapses (TRIGGER_BUSY_MAX_MS), so the buttons come back.
+  const pending = useActiveTriggerPending();
   const holdUntil = useTriggerBusyStore((s) => s.holdUntil);
   const recraftRef = useRef<{ key: string; craft: TriggerCraftResponse; at: number } | null>(null);
   const wallet = publicKey?.toBase58() ?? null;
@@ -182,7 +186,7 @@ export function useTriggerActions(): UseTriggerActionsResult {
       if (getTriggerSession(wallet).status !== "ready") {
         return fail("auth", "Sign in to limit orders first");
       }
-      const reason = busyReason(useTriggerBusyStore.getState().pending);
+      const reason = busyReason(getActiveTriggerPending());
       if (reason) return fail("busy", reason);
       if (action === "new-order" && isNewOrderHeld()) return fail("busy", UNKNOWN_ORDER_HOLD_MESSAGE);
       return null;
@@ -320,7 +324,7 @@ export function useTriggerActions(): UseTriggerActionsResult {
     async (action: TriggerPendingAction, body: () => Promise<TriggerActionResult>) => {
       const token = acquireTriggerBusy(action);
       if (token === null) {
-        return fail("busy", busyReason(useTriggerBusyStore.getState().pending) ?? "Another order action is running");
+        return fail("busy", busyReason(getActiveTriggerPending()) ?? "Another order action is running");
       }
       try {
         return await body();
@@ -468,6 +472,9 @@ export function useTriggerActions(): UseTriggerActionsResult {
           });
           return { ok: true, orderId: typeof c.id === "string" ? c.id : row.id, txSignature };
         } catch (err) {
+          // Jupiter refused the cancel step outright (e.g. already withdrawn
+          // elsewhere): a local "stopped" record of this order is stale.
+          if (!stopped && mode === "withdraw" && isDefiniteCancelRejection(err)) clearStoppedOrder(user, row);
           const result = toFailure(err, stage);
           if (!result.ok) {
             if (result.code === "unknown_outcome") {

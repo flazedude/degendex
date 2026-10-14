@@ -126,6 +126,14 @@ describe("limitFormView", () => {
     ).toMatch(/sell limit must be above/);
   });
 
+  it("tells the user how much USDC to enter when USDC trades under $1", () => {
+    const v = limitFormView(limit({ payAmount: "10", usdcPriceUsd: 0.9997 }));
+    expect(v.belowMinimum).toBe(true);
+    expect(v.blocker).toContain("Enter at least 10.01 USDC (Jupiter values USDC at $0.9997)");
+    expect(v.blocker).not.toContain("$10.00 ");
+    expect(limitFormView(limit({ payAmount: "10.01", usdcPriceUsd: 0.9997 })).blocker).toBeNull();
+  });
+
   it("enforces the $10 minimum", () => {
     const v = limitFormView(limit({ payAmount: "5" }));
     expect(v.belowMinimum).toBe(true);

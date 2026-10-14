@@ -5,6 +5,7 @@ import {
   UNKNOWN_OUTCOME_MESSAGE,
   UNREADABLE_WITHDRAWAL_MESSAGE,
   disabledReason,
+  isDefiniteCancelRejection,
   isUnknownOutcome,
   toFailure,
   withdrawalCheckFailedMessage,
@@ -81,5 +82,25 @@ describe("withdrawal fallbacks", () => {
     expect(msg).toMatch(/jup\.ag/);
     expect(UNREADABLE_WITHDRAWAL_MESSAGE).toMatch(/jup\.ag/);
     expect(PRICE_DELAYED_MESSAGE).toBe("Price is delayed, try again in a moment");
+  });
+});
+
+describe("isDefiniteCancelRejection", () => {
+  it("is true only for a plain 4xx about the order", () => {
+    expect(isDefiniteCancelRejection(apiErr(400))).toBe(true);
+    expect(isDefiniteCancelRejection(apiErr(404))).toBe(true);
+    expect(isDefiniteCancelRejection(apiErr(409))).toBe(true);
+    expect(isDefiniteCancelRejection(apiErr(401, { code: "auth_required", authError: true }))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(400, { authError: true }))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(403))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(408))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(429, { code: "rate_limited" }))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(404, { nonJson: true }))).toBe(false);
+    // Our kill switch answered, Jupiter never saw the request.
+    expect(isDefiniteCancelRejection(apiErr(404, { disabled: true }))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(400, { unknownOutcome: true }))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(500))).toBe(false);
+    expect(isDefiniteCancelRejection(apiErr(0, { code: "network" }))).toBe(false);
+    expect(isDefiniteCancelRejection(new Error("x"))).toBe(false);
   });
 });

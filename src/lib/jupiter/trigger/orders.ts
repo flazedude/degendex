@@ -88,6 +88,58 @@ function usd(n: number): string {
   return formatUsd(n) ?? `$${n}`;
 }
 
+/**
+ * `n` with the fewest decimals in [minDp, maxDp] that still reads below
+ * `limit` when `n` is below it (e.g. 9.997 -> "9.997", never "10.00"); cut
+ * (not rounded) at maxDp as a last resort. Plain toFixed(minDp) otherwise.
+ */
+export function fixedBelow(n: number, limit: number, minDp = 2, maxDp = 6): string {
+  if (!Number.isFinite(n)) return String(n);
+  if (!(n < limit)) return n.toFixed(minDp);
+  for (let dp = minDp; dp <= maxDp; dp++) {
+    const s = n.toFixed(dp);
+    if (Number(s) < limit) return s;
+  }
+  return new BigNumber(n).decimalPlaces(maxDp, BigNumber.ROUND_DOWN).toFixed(maxDp);
+}
+
+/**
+ * "$9.997" style USD for an amount compared against `limit` (the $10
+ * minimum): enough precision that a value below it never reads as "$10.00".
+ */
+export function formatUsdBelow(n: number | null | undefined, limit: number = TRIGGER_MIN_USD): string | null {
+  if (typeof n !== "number" || !Number.isFinite(n)) return null;
+  if (!(n < limit) || n < 0.01) return formatUsd(n);
+  const s = fixedBelow(n, limit);
+  const [int, frac] = s.split(".");
+  return `$${Number(int).toLocaleString("en-US")}${frac ? `.${frac}` : ""}`;
+}
+
+/**
+ * Smallest USDC amount (ceil to cents) worth at least `minUsd` when Jupiter
+ * values USDC at `usdcPriceUsd`, as a "10.01" string.
+ */
+export function minUsdcFor(minUsd: number, usdcPriceUsd: number | null | undefined): string {
+  const p = typeof usdcPriceUsd === "number" && Number.isFinite(usdcPriceUsd) && usdcPriceUsd > 0 ? usdcPriceUsd : 1;
+  let min = new BigNumber(minUsd).div(p).decimalPlaces(2, BigNumber.ROUND_UP);
+  // Guard against the division's own rounding: the amount must clear minUsd.
+  while (min.times(p).lt(minUsd)) min = min.plus("0.01");
+  return min.toFixed(2);
+}
+
+/** planLimitOrder's below-minimum message; names the USDC to enter on buys. */
+export function minimumOrderMessage(
+  side: OrderSide,
+  depositUsd: number,
+  usdcPriceUsd: number | null | undefined
+): string {
+  const head = `Minimum order is $${TRIGGER_MIN_USD} (this one is about ${formatUsdBelow(depositUsd)})`;
+  if (side !== "buy") return head;
+  const p = typeof usdcPriceUsd === "number" && Number.isFinite(usdcPriceUsd) && usdcPriceUsd > 0 ? usdcPriceUsd : 1;
+  const note = p < 1 ? ` (Jupiter values USDC at $${fixedBelow(p, 1, 4, 6)})` : "";
+  return `${head}. Enter at least ${minUsdcFor(TRIGGER_MIN_USD, p)} USDC${note}`;
+}
+
 function resolvePair(
   base: TokenInfo,
   side: OrderSide,
@@ -138,9 +190,7 @@ export function planLimitOrder(input: LimitOrderInput, ctx: PlanContext): PlanRe
     return fail("Expiry must be between 1 minute and 30 days");
   }
   if (pair.plan.depositUsd !== null && pair.plan.depositUsd < TRIGGER_MIN_USD) {
-    return fail(
-      `Minimum order is ${usd(TRIGGER_MIN_USD)} (this one is about ${usd(pair.plan.depositUsd)})`
-    );
+    return fail(minimumOrderMessage(input.side, pair.plan.depositUsd, ctx.usdcPriceUsd));
   }
   const symbol = input.base.symbol || "token";
   const price = ctx.basePriceUsd;
@@ -201,7 +251,7 @@ export function planDca(
   const roundUsd = pair.plan.depositUsd !== null ? pair.plan.depositUsd / orderCount : null;
   if (roundUsd !== null && roundUsd < TRIGGER_MIN_USD) {
     return fail(
-      `Each order must be worth at least ${usd(TRIGGER_MIN_USD)}: ${usd(pair.plan.depositUsd!)} over ${orderCount} orders is about ${usd(roundUsd)} each`
+      `Each order must be worth at least ${usd(TRIGGER_MIN_USD)}: ${usd(pair.plan.depositUsd!)} over ${orderCount} orders is about ${formatUsdBelow(roundUsd)} each`
     );
   }
   return { ok: true, plan: { ...pair.plan, kind: "dca", orderCount, intervalSeconds, roundUsd } };

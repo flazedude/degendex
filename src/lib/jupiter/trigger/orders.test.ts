@@ -6,10 +6,14 @@ import {
   buildCreateDcaBody,
   buildCreatePriceBody,
   extractUsdPrice,
+  fixedBelow,
+  formatUsdBelow,
   MAX_PRICE_AGE_MS,
   isDepositCacheMiss,
   isNearMinimum,
   isWithdrawalCacheMiss,
+  minUsdcFor,
+  minimumOrderMessage,
   parseCraftResponse,
   planDca,
   planLimitOrder,
@@ -257,5 +261,69 @@ describe("USDC valued at its live price ($10 minimum)", () => {
     expect(isNearMinimum(10, 10)).toBe(true);
     expect(isNearMinimum(10.19, 10)).toBe(true);
     expect(isNearMinimum(10.2, 10)).toBe(false);
+  });
+});
+
+describe("telling the user how much USDC clears the $10 minimum", () => {
+  const input = { base: SOL, side: "buy" as const, payAmountUi: "10", triggerPriceUsd: 140, expiresInMs: DAY };
+
+  it("names the exact USDC amount when USDC trades just under $1", () => {
+    const r = planLimitOrder(input, { basePriceUsd: 150, usdcPriceUsd: 0.9997, nowMs: NOW });
+    expect(r.ok).toBe(false);
+    const error = (r as { error: string }).error;
+    expect(error).toContain("Enter at least 10.01 USDC (Jupiter values USDC at $0.9997)");
+    // 10 USDC at $0.9997 is $9.997: never shown as "$10.00".
+    expect(error).toContain("about $9.997");
+    expect(error).not.toContain("$10.00");
+    // And the amount it names really clears the minimum.
+    expect(
+      planLimitOrder({ ...input, payAmountUi: minUsdcFor(10, 0.9997) }, { basePriceUsd: 150, usdcPriceUsd: 0.9997, nowMs: NOW }).ok
+    ).toBe(true);
+  });
+
+  it("computes ceil-to-cents of 10 / USDC price", () => {
+    expect(minUsdcFor(10, 0.9997)).toBe("10.01");
+    expect(minUsdcFor(10, 0.99)).toBe("10.11");
+    expect(minUsdcFor(10, 1)).toBe("10.00");
+    expect(minUsdcFor(10, 1.0004)).toBe("10.00");
+    expect(minUsdcFor(10, null)).toBe("10.00");
+    expect(minUsdcFor(10, 0)).toBe("10.00");
+    for (const p of [0.9997, 0.9999, 0.98765, 0.999999, 0.95]) {
+      expect(Number(minUsdcFor(10, p)) * p).toBeGreaterThanOrEqual(10 - 1e-9);
+    }
+  });
+
+  it("only adds the USDC note when the live price is under $1, and not on sells", () => {
+    expect(minimumOrderMessage("buy", 5, 1)).toBe("Minimum order is $10 (this one is about $5.00). Enter at least 10.00 USDC");
+    expect(minimumOrderMessage("buy", 5, null)).not.toMatch(/values USDC/);
+    expect(minimumOrderMessage("sell", 9.9999, null)).toBe("Minimum order is $10 (this one is about $9.9999)");
+    // The USDC price itself never rounds to $1.0000.
+    const msg = minimumOrderMessage("buy", 9.99995, 0.999995);
+    expect(msg).toMatch(/values USDC at \$0\.9999\d*\)/);
+    expect(msg).toContain("about $9.99995");
+  });
+
+  it("formats values just under the minimum with enough precision", () => {
+    expect(fixedBelow(9.997, 10)).toBe("9.997");
+    expect(fixedBelow(9.5, 10)).toBe("9.50");
+    expect(fixedBelow(12.345, 10)).toBe("12.35");
+    expect(fixedBelow(9.99999999, 10)).toBe("9.999999");
+    expect(formatUsdBelow(9.997)).toBe("$9.997");
+    // Two decimals suffice when they already read below the limit.
+    expect(formatUsdBelow(9.994)).toBe("$9.99");
+    expect(formatUsdBelow(9.9)).toBe("$9.90");
+    expect(formatUsdBelow(25)).toBe("$25.00");
+    expect(formatUsdBelow(1234.5, 2000)).toBe("$1,234.50");
+    expect(formatUsdBelow(null)).toBeNull();
+  });
+
+  it("DCA rounds just under $10 never read as $10.00", () => {
+    const r = planDca(
+      { base: SOL, side: "sell", totalPayUi: "0.13331", orderCount: 2, intervalSeconds: 86_400 },
+      { basePriceUsd: 150, nowMs: NOW, activeDcaCount: 0 }
+    );
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toMatch(/about \$9\.99\d* each/);
+    expect((r as { error: string }).error).not.toMatch(/\$10\.00 each/);
   });
 });

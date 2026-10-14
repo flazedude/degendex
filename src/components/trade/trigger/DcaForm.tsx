@@ -8,7 +8,7 @@ import { useTriggerActions } from "@/hooks/useTriggerActions";
 import { useTriggerOrders } from "@/hooks/useTriggerOrders";
 import { formatUsd } from "@/lib/amounts";
 import { MAX_ACTIVE_DCA, NEW_ORDERS_ENABLED, TRIGGER_MIN_USD, TRIGGER_MODE } from "@/lib/jupiter/trigger/config";
-import type { OrderSide } from "@/lib/jupiter/trigger/orders";
+import { formatUsdBelow, type OrderSide } from "@/lib/jupiter/trigger/orders";
 import { UNKNOWN_ORDER_HOLD_MESSAGE } from "@/lib/jupiter/trigger/actionResult";
 import { getTokenWarnings } from "@/lib/tokens/risk";
 import type { TokenInfo } from "@/lib/tokens/types";
@@ -112,7 +112,7 @@ export function DcaForm({ base }: { base: TokenInfo }) {
   };
 
   const totalUsd = formatUsd(view.totalUsd);
-  const perRoundUsd = formatUsd(view.perRoundUsd);
+  const perRoundUsd = formatUsdBelow(view.perRoundUsd);
 
   return (
     <div className="space-y-2">

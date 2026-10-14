@@ -6,10 +6,10 @@ import { useMarketDetail } from "@/hooks/useMarketDetail";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
 import { useTriggerActions } from "@/hooks/useTriggerActions";
-import { formatUsd, sanitizeAmount } from "@/lib/amounts";
+import { sanitizeAmount } from "@/lib/amounts";
 import { USDC_MINT } from "@/lib/constants";
 import { NEW_ORDERS_ENABLED, TRIGGER_MIN_USD, TRIGGER_MODE } from "@/lib/jupiter/trigger/config";
-import type { OrderSide } from "@/lib/jupiter/trigger/orders";
+import { formatUsdBelow, type OrderSide } from "@/lib/jupiter/trigger/orders";
 import { UNKNOWN_ORDER_HOLD_MESSAGE } from "@/lib/jupiter/trigger/actionResult";
 import { getTokenWarnings } from "@/lib/tokens/risk";
 import type { TokenInfo } from "@/lib/tokens/types";
@@ -128,7 +128,7 @@ export function LimitOrderForm({ base }: { base: TokenInfo }) {
   const verb = side === "buy" ? "Buy" : "Sell";
   const expiryLabel = EXPIRY_OPTIONS.find((o) => o.id === expiry)?.label ?? "";
   const dist = view.distancePct;
-  const usdText = formatUsd(view.depositUsd);
+  const usdText = formatUsdBelow(view.depositUsd);
 
   return (
     <div className="space-y-2">

@@ -3,6 +3,7 @@ import {
   asStoppedRow,
   countActiveDca,
   liveStoppedRows,
+  settledStoppedRows,
   withStoppedRows,
   normalizeDcaOrder,
   normalizePriceOrder,
@@ -400,5 +401,25 @@ describe("locally stopped orders", () => {
     const done = normalizePriceOrder({ ...PRICE_DOC, rawState: "cancelled" })!;
     expect(liveStoppedRows([done], [open])).toEqual([]);
     expect(withStoppedRows([done], [])).toEqual([done]);
+  });
+
+  it("names the stopped rows Jupiter has settled", () => {
+    const server = normalizePriceOrder({ ...PRICE_DOC, rawState: "ready_to_cancel" })!;
+    expect(settledStoppedRows([server], [open, dca])).toEqual([open]);
+    expect(settledStoppedRows([open], [open])).toEqual([]);
+    expect(settledStoppedRows([], [open])).toEqual([]);
+    const withdrawing = normalizeDcaOrder({ ...DCA_DOC, state: "withdrawing" })!;
+    expect(settledStoppedRows([withdrawing], [dca])).toEqual([dca]);
+  });
+
+  it("treats an expired order with nothing left as settled (withdrawn elsewhere)", () => {
+    const emptied = normalizePriceOrder({ ...PRICE_DOC, rawState: "expired", remainingInputAmount: "0" })!;
+    expect(emptied.status).toBe("expired");
+    expect(emptied.canWithdraw).toBe(false);
+    expect(settledStoppedRows([emptied], [open])).toEqual([open]);
+    expect(liveStoppedRows([emptied], [open])).toEqual([]);
+    // Expiry still processing with funds inside: not settled yet.
+    const processing = normalizePriceOrder({ ...PRICE_DOC, rawState: "ready_expire" })!;
+    expect(settledStoppedRows([processing], [open])).toEqual([]);
   });
 });

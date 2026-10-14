@@ -277,6 +277,10 @@ describe("trigger proxy: authenticated routes", () => {
     const res = await GET(req("GET", "vault", { headers: auth }), ctx("vault"));
     expect(res.status).toBe(429);
     expect((await res.json()).retryAfterMs).toBe(5000);
+    // Same Jupiter bucket as market data: market polling backs off too.
+    const { cooldownRemainingMs } = await import("@/lib/server/cache");
+    const { JUPITER_UPSTREAM } = await import("@/lib/markets/jupiter");
+    expect(cooldownRemainingMs(JUPITER_UPSTREAM)).toBeGreaterThan(0);
   });
 
   it("validates and forwards a create price order; 5xx/timeout = unknown outcome", async () => {

@@ -14,15 +14,13 @@ import { useRelativeClock } from "../useRelativeClock";
 import { TriggerGate } from "./TriggerConsentDialog";
 import {
   CardLine,
-  OrderCard,
-  PairCell,
+  OrderRow,
   RowActions,
-  StatusChip,
   TableMessage,
   TableSkeleton,
   TriggerCell,
-  TypeCell,
   useRowsMetadata,
+  wideClasses,
 } from "./orderCells";
 import {
   fillPercentText,
@@ -33,8 +31,10 @@ import {
   tokenFor,
 } from "./triggerFormat";
 
-const GRID =
-  "grid grid-cols-[4.5rem_minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_2.75rem_4.5rem_minmax(0,1fr)_4.75rem] items-center gap-x-3";
+/** Wide layout (container >= 48rem): Type, Pair, Amount, Trigger, Filled, Time, Status, Action. */
+const GRID_COLS =
+  "grid-cols-[4.5rem_minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_2.75rem_4.5rem_minmax(0,1fr)_4.75rem] gap-x-3";
+const WIDE = wideClasses("open");
 
 function AmountCell({ row, metadata }: { row: TriggerOrderRow; metadata?: Record<string, TokenInfo> }) {
   const token = tokenFor(row.inputMint, metadata);
@@ -97,92 +97,56 @@ function Rows() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Below sm: stacked cards, so status and the Withdraw / Cancel button
-          are always on screen (the table needs ~760px). */}
-      <div className="min-h-0 flex-1 overflow-y-auto sm:hidden">
+    // @container: the layout follows this panel's width, not the viewport.
+    <div className="@container flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            WIDE.wideGrid,
+            GRID_COLS,
+            "sticky top-0 z-10 items-center border-b border-border/50 bg-card px-3 py-1 text-[10px] text-muted-foreground"
+          )}
+        >
+          <span>Type</span>
+          <span>Pair</span>
+          <span className="text-right">Amount</span>
+          <span className="text-right">Trigger / rounds</span>
+          <span className="text-right">Filled</span>
+          <span className="text-right">Expires / next</span>
+          <span>Status</span>
+          <span className="text-right">Action</span>
+        </div>
         {rows.length === 0 ? (
           <TableMessage>No open limit or DCA orders</TableMessage>
         ) : (
           <div role="list" aria-label="Open orders">
             {rows.map((r) => (
-              <OrderCard
+              <OrderRow
                 key={rowKey(r)}
                 row={r}
                 metadata={metadata}
+                layout="open"
+                gridCols={GRID_COLS}
+                statusOrder={7}
+                actionOrder={8}
                 action={<RowActions row={r} actions={actions} confirm={confirm} />}
               >
-                <CardLine label="Amount">
+                <CardLine label="Amount" order={3}>
                   <AmountCell row={r} metadata={metadata} />
                 </CardLine>
-                <CardLine label={r.family === "price" ? "Trigger" : "Rounds"}>
+                <CardLine label={r.family === "price" ? "Trigger" : "Rounds"} order={4}>
                   <TriggerCell row={r} />
                 </CardLine>
-                <CardLine label="Filled">
+                <CardLine label="Filled" order={5}>
                   <span className="font-mono tabular-nums">{fillPercentText(r)}</span>
                 </CardLine>
-                <CardLine label={r.family === "price" ? "Expires" : "Next round"}>
+                <CardLine label={r.family === "price" ? "Expires" : "Next round"} order={6}>
                   <TimeCell row={r} now={now} />
                 </CardLine>
-              </OrderCard>
+              </OrderRow>
             ))}
           </div>
         )}
-      </div>
-      <div className="hidden min-h-0 flex-1 overflow-x-auto sm:block">
-        <div className="min-w-[760px]">
-          <div
-            className={cn(
-              GRID,
-              "sticky top-0 z-10 border-b border-border/50 bg-card px-3 py-1 text-[10px] text-muted-foreground"
-            )}
-          >
-            <span>Type</span>
-            <span>Pair</span>
-            <span className="text-right">Amount</span>
-            <span className="text-right">Trigger / rounds</span>
-            <span className="text-right">Filled</span>
-            <span className="text-right">Expires / next</span>
-            <span>Status</span>
-            <span className="text-right">Action</span>
-          </div>
-          {rows.length === 0 ? (
-            <TableMessage>No open limit or DCA orders</TableMessage>
-          ) : (
-            <div role="list" aria-label="Open orders">
-              {rows.map((r) => (
-                <div
-                  role="listitem"
-                  key={rowKey(r)}
-                  className={cn(
-                    GRID,
-                    "border-l-2 px-3 py-1 text-[11px]",
-                    r.canWithdraw ? "border-l-yellow-500 bg-yellow-500/5" : "border-l-transparent"
-                  )}
-                >
-                  <TypeCell row={r} />
-                  <PairCell row={r} metadata={metadata} />
-                  <span className="text-right">
-                    <AmountCell row={r} metadata={metadata} />
-                  </span>
-                  <span className="text-right">
-                    <TriggerCell row={r} />
-                  </span>
-                  <span className="text-right font-mono tabular-nums">{fillPercentText(r)}</span>
-                  <span className="text-right">
-                    <TimeCell row={r} now={now} />
-                  </span>
-                  <span className="min-w-0">
-                    <StatusChip row={r} />
-                  </span>
-                  <span className="flex justify-end">
-                    <RowActions row={r} actions={actions} confirm={confirm} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
       <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-border/50 px-3 py-1 text-[10px] text-muted-foreground">
         <span>
@@ -194,7 +158,7 @@ function Rows() {
           </span>
         )}
         {orders.error && rows.length > 0 && <span className="text-yellow-500">{orders.error}</span>}
-        <span className="hidden sm:inline">Amount is what is still held in the Jupiter vault.</span>
+        <span className={WIDE.wideInline}>Amount is what is still held in the Jupiter vault.</span>
         <button
           type="button"
           onClick={() => void orders.refetch()}

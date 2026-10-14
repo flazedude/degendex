@@ -37,8 +37,11 @@ import {
   rateLimitedResponse,
   readJson,
   readTextCapped,
+  retryAfterSeconds,
   upstreamError,
 } from "@/lib/jupiter/server";
+import { JUPITER_UPSTREAM } from "@/lib/markets/jupiter";
+import { setCooldown } from "@/lib/server/cache";
 
 export const dynamic = "force-dynamic";
 // Create / confirm-cancel wait up to 45s upstream; leave headroom.
@@ -135,7 +138,11 @@ async function handle(method: TriggerMethod, req: NextRequest, ctx: RouteContext
     );
   }
 
-  if (res.status === 429) return rateLimitedResponse(res);
+  if (res.status === 429) {
+    // Same Jupiter bucket as market data: let market polling back off too.
+    setCooldown(JUPITER_UPSTREAM, retryAfterSeconds(res.headers));
+    return rateLimitedResponse(res);
+  }
 
   const body = await readJson(res);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isTriggerApiError, triggerFetch } from "@/lib/jupiter/trigger/client";
@@ -18,7 +18,11 @@ import type {
   TriggerOrderRow,
 } from "@/lib/jupiter/trigger/types";
 import { useTriggerSession } from "@/hooks/useTriggerAuth";
-import { recentStoppedRows, useTriggerBusyStore } from "@/store/useTriggerBusyStore";
+import {
+  clearSettledStoppedOrders,
+  recentStoppedRows,
+  useTriggerBusyStore,
+} from "@/store/useTriggerBusyStore";
 
 const ACTIVE_POLL_MS = 30_000;
 /** Expired price orders live under state=past but still hold funds. */
@@ -153,6 +157,18 @@ export function useTriggerOrders(): UseTriggerOrdersResult {
     const activeDcaCount = Math.max(countActiveDca(dcaRows), enabled ? (dca.data?.pagination.total ?? 0) : 0);
     return { priceRows, dcaRows, activeRows, needsWithdraw, activeDcaCount };
   }, [enabled, price.data, dca.data, expired.data, stopped, wallet]);
+
+  // Once Jupiter's lists report a locally stopped order as withdrawable or
+  // finished, forget the local record for good (not just for this render), so
+  // the order cannot reappear as "stopped" after it leaves the lists.
+  useEffect(() => {
+    if (!enabled || !wallet) return;
+    clearSettledStoppedOrders(wallet, [
+      ...(price.data?.rows ?? []),
+      ...(dca.data?.rows ?? []),
+      ...(expired.data?.rows ?? []),
+    ]);
+  }, [enabled, wallet, price.data, dca.data, expired.data, stopped]);
 
   const queryClient = useQueryClient();
   const refetch = useCallback(async () => {

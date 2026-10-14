@@ -12,15 +12,13 @@ import { TriggerGate } from "./TriggerConsentDialog";
 import {
   CardLine,
   EventLinks,
-  OrderCard,
-  PairCell,
+  OrderRow,
   RowActions,
-  StatusChip,
   TableMessage,
   TableSkeleton,
   TriggerCell,
-  TypeCell,
   useRowsMetadata,
+  wideClasses,
 } from "./orderCells";
 import {
   fillPercentText,
@@ -29,6 +27,7 @@ import {
   outputNotPaidOut,
   pageRangeText,
   paidSummary,
+  remainderNeedsAttention,
   rowKey,
   tokenFor,
 } from "./triggerFormat";
@@ -39,8 +38,13 @@ const FAMILIES: { id: TriggerFamily; label: string }[] = [
   { id: "dca", label: "DCA" },
 ];
 
-const GRID =
-  "grid grid-cols-[4.5rem_minmax(0,0.9fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_2.75rem_minmax(0,1fr)_6.5rem_minmax(0,1.3fr)_4.75rem] items-center gap-x-3";
+/**
+ * Wide layout (container >= 56rem): Type, Pair, Paid, Received, Trigger,
+ * Filled, Status, Updated, Transactions, Action.
+ */
+const GRID_COLS =
+  "grid-cols-[4.5rem_minmax(0,0.9fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_2.75rem_minmax(0,1fr)_6.5rem_minmax(0,1.3fr)_4.75rem] gap-x-3";
+const WIDE = wideClasses("history");
 
 /**
  * What the order actually spent: "Paid X" plus the part of the deposit that
@@ -50,6 +54,16 @@ const GRID =
 function PaidCell({ row, token }: { row: TriggerOrderRow; token?: TokenInfo }) {
   const s = paidSummary(row);
   const deposited = formatBaseAmount(s.deposited, token);
+  if (s.notDeposited) {
+    return (
+      <span
+        className="truncate font-mono tabular-nums text-muted-foreground"
+        title={`The deposit of ${deposited} did not go through: nothing was spent.`}
+      >
+        {deposited} <span className="text-[10px]">not deposited</span>
+      </span>
+    );
+  }
   if (s.paid === null) {
     return (
       <span
@@ -69,7 +83,7 @@ function PaidCell({ row, token }: { row: TriggerOrderRow; token?: TokenInfo }) {
     >
       {paid}
       {remainder && (
-        <span className={cn("text-muted-foreground", s.remainderLabel !== "refunded" && "text-yellow-500")}>
+        <span className={remainderNeedsAttention(s.remainderLabel) ? "text-yellow-500" : "text-muted-foreground"}>
           {" "}
           · {s.remainderLabel} {remainder}
         </span>
@@ -110,8 +124,6 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
   const rows = history.rows;
 
   let body: React.ReactNode;
-  // Small screens; the same as `body` unless there are rows to show.
-  let cards: React.ReactNode = null;
   if (history.isLoading) body = <TableSkeleton />;
   else if (history.error && rows.length === 0) {
     body = (
@@ -122,82 +134,45 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
   } else if (rows.length === 0) {
     body = <TableMessage>No past {family === "price" ? "limit" : "DCA"} orders</TableMessage>;
   } else {
+    // Each order renders once: a card in a narrow container, a grid row from
+    // 56rem of container width up.
     body = (
       <div role="list" aria-label="Order history" className={cn(history.isFetching && "opacity-70")}>
         {rows.map((r) => {
           const inTok = tokenFor(r.inputMint, metadata);
           const outTok = tokenFor(r.outputMint, metadata);
           return (
-            <div
-              role="listitem"
-              key={rowKey(r)}
-              className={cn(
-                GRID,
-                "border-l-2 px-3 py-1 text-[11px]",
-                r.canWithdraw || r.fundsMayBeHeld ? "border-l-yellow-500 bg-yellow-500/5" : "border-l-transparent"
-              )}
-            >
-              <TypeCell row={r} />
-              <PairCell row={r} metadata={metadata} />
-              <span className="min-w-0 truncate text-right">
-                <PaidCell row={r} token={inTok} />
-              </span>
-              <span className="min-w-0 truncate text-right">
-                <ReceivedCell row={r} token={outTok} />
-              </span>
-              <span className="text-right">
-                <TriggerCell row={r} />
-              </span>
-              <span className="text-right font-mono tabular-nums">{fillPercentText(r)}</span>
-              <span className="min-w-0">
-                <StatusChip row={r} />
-              </span>
-              <span className="truncate font-mono tabular-nums text-muted-foreground">
-                {formatDateTime(r.updatedAt || r.createdAt)}
-              </span>
-              <span className="min-w-0 text-[10px]">
-                <EventLinks row={r} />
-              </span>
-              <span className="flex justify-end">
-                <RowActions row={r} actions={actions} confirm={confirm} />
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    );
-    // Below sm: stacked cards with status and action on the first line.
-    cards = (
-      <div role="list" aria-label="Order history" className={cn(history.isFetching && "opacity-70")}>
-        {rows.map((r) => {
-          const inTok = tokenFor(r.inputMint, metadata);
-          const outTok = tokenFor(r.outputMint, metadata);
-          return (
-            <OrderCard
+            <OrderRow
               key={rowKey(r)}
               row={r}
               metadata={metadata}
+              layout="history"
+              gridCols={GRID_COLS}
+              statusOrder={7}
+              actionOrder={10}
               action={<RowActions row={r} actions={actions} confirm={confirm} />}
             >
-              <CardLine label="Paid">
+              <CardLine label="Paid" order={3}>
                 <PaidCell row={r} token={inTok} />
               </CardLine>
-              <CardLine label="Received">
+              <CardLine label="Received" order={4}>
                 <ReceivedCell row={r} token={outTok} />
               </CardLine>
-              <CardLine label={r.family === "price" ? "Trigger" : "Rounds"}>
+              <CardLine label={r.family === "price" ? "Trigger" : "Rounds"} order={5}>
                 <TriggerCell row={r} />
               </CardLine>
-              <CardLine label="Filled">
+              <CardLine label="Filled" order={6}>
                 <span className="font-mono tabular-nums">{fillPercentText(r)}</span>
               </CardLine>
-              <CardLine label="Updated">
-                <span className="font-mono tabular-nums">{formatDateTime(r.updatedAt || r.createdAt)}</span>
+              <CardLine label="Updated" order={8} align="left">
+                <span className="font-mono tabular-nums text-muted-foreground">
+                  {formatDateTime(r.updatedAt || r.createdAt)}
+                </span>
               </CardLine>
-              <CardLine label="Transactions">
+              <CardLine label="Transactions" order={9} align="left">
                 <EventLinks row={r} />
               </CardLine>
-            </OrderCard>
+            </OrderRow>
           );
         })}
       </div>
@@ -207,29 +182,28 @@ function HistoryRows({ family }: { family: TriggerFamily }) {
   const canPrev = offset > 0;
   const canNext = history.hasMore;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto sm:hidden">{cards ?? body}</div>
-      <div className="hidden min-h-0 flex-1 overflow-x-auto sm:block">
-        <div className="min-w-[900px]">
-          <div
-            className={cn(
-              GRID,
-              "sticky top-0 z-10 border-b border-border/50 bg-card px-3 py-1 text-[10px] text-muted-foreground"
-            )}
-          >
-            <span>Type</span>
-            <span>Pair</span>
-            <span className="text-right">Paid</span>
-            <span className="text-right">Received</span>
-            <span className="text-right">Trigger / rounds</span>
-            <span className="text-right">Filled</span>
-            <span>Status</span>
-            <span>Updated</span>
-            <span>Transactions</span>
-            <span className="text-right">Action</span>
-          </div>
-          {body}
+    // @container: the layout follows this panel's width, not the viewport.
+    <div className="@container flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            WIDE.wideGrid,
+            GRID_COLS,
+            "sticky top-0 z-10 items-center border-b border-border/50 bg-card px-3 py-1 text-[10px] text-muted-foreground"
+          )}
+        >
+          <span>Type</span>
+          <span>Pair</span>
+          <span className="text-right">Paid</span>
+          <span className="text-right">Received</span>
+          <span className="text-right">Trigger / rounds</span>
+          <span className="text-right">Filled</span>
+          <span>Status</span>
+          <span>Updated</span>
+          <span>Transactions</span>
+          <span className="text-right">Action</span>
         </div>
+        {body}
       </div>
       <div className="mt-auto flex items-center gap-2 border-t border-border/50 px-3 py-1 text-[10px] text-muted-foreground">
         <span className="font-mono">{pageRangeText(offset, rows.length, history.total)}</span>

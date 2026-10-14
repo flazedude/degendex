@@ -417,7 +417,16 @@ export function countActiveDca(rows: readonly TriggerOrderRow[]): number {
 
 // --- Locally stopped orders ---------------------------------------------------
 
-const TERMINAL_OR_WITHDRAWABLE = (r: TriggerOrderRow) => TERMINAL.has(r.status) || r.canWithdraw;
+/**
+ * Jupiter's own lists have caught up with a locally stopped order: it is
+ * finished, withdrawable there, or an expired order with nothing left in it
+ * (withdrawn elsewhere). An expired order that still holds funds but is not
+ * withdrawable yet (ready_expire) is still processing, so it does not count.
+ */
+const TERMINAL_OR_WITHDRAWABLE = (r: TriggerOrderRow) =>
+  TERMINAL.has(r.status) ||
+  r.canWithdraw ||
+  (r.status === "expired" && /^0*$/.test(r.inputAmountRemaining));
 const rowKeyOf = (r: Pick<TriggerOrderRow, "family" | "id">) => `${r.family}:${r.id}`;
 
 /**
@@ -435,6 +444,9 @@ export function asStoppedRow(row: TriggerOrderRow): TriggerOrderRow {
   };
 }
 
+const settledKeys = (server: readonly TriggerOrderRow[]) =>
+  new Set(server.filter(TERMINAL_OR_WITHDRAWABLE).map(rowKeyOf));
+
 /**
  * Stopped rows still worth showing: dropped as soon as Jupiter's own lists
  * report the order as finished or withdrawable (its copy is then the truth).
@@ -443,8 +455,22 @@ export function liveStoppedRows(
   server: readonly TriggerOrderRow[],
   stopped: readonly TriggerOrderRow[]
 ): TriggerOrderRow[] {
-  const settled = new Set(server.filter(TERMINAL_OR_WITHDRAWABLE).map(rowKeyOf));
+  const settled = settledKeys(server);
   return stopped.filter((r) => !settled.has(rowKeyOf(r))).map(asStoppedRow);
+}
+
+/**
+ * Locally stopped rows that Jupiter's lists now report as withdrawable or
+ * finished. Their local record must be forgotten (not just hidden): once the
+ * order leaves the lists (withdrawn, e.g. on jup.ag) it must not come back as
+ * a stopped row.
+ */
+export function settledStoppedRows(
+  server: readonly TriggerOrderRow[],
+  stopped: readonly TriggerOrderRow[]
+): TriggerOrderRow[] {
+  const settled = settledKeys(server);
+  return stopped.filter((r) => settled.has(rowKeyOf(r)));
 }
 
 /** Replaces lagging server copies (still "open") with their stopped version. */

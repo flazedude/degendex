@@ -102,3 +102,27 @@ export const UNREADABLE_WITHDRAWAL_MESSAGE = `Jupiter returned an unreadable wit
 
 export const STOPPED_NOT_WITHDRAWN_MESSAGE =
   "Order stopped, but its funds are still in the Jupiter vault. Press Withdraw to get them back";
+
+/** Statuses that say nothing definite about the order itself. */
+const INDEFINITE_4XX = new Set([401, 403, 408, 429]);
+
+/**
+ * Jupiter refused the cancel step outright (e.g. 400 / 404 / 409: the order
+ * is already withdrawn or no longer exists), as opposed to an auth, rate
+ * limit, proxy or network problem. A locally stopped record of that order is
+ * then stale.
+ */
+export function isDefiniteCancelRejection(err: unknown): boolean {
+  return (
+    isTriggerApiError(err) &&
+    err.code === "http" &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    !INDEFINITE_4XX.has(err.status) &&
+    !err.authError &&
+    !err.unknownOutcome &&
+    !err.nonJson &&
+    // The kill switch answered, not Jupiter: says nothing about the order.
+    !err.disabled
+  );
+}

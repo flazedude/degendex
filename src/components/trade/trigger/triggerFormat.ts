@@ -119,13 +119,25 @@ export function statusChip(
 /**
  * History "Paid" figure: what fills actually spent, plus what went (or is
  * waiting to go) back. `paid` is null when Jupiter does not say how much was
- * spent; then only the deposit is known.
+ * spent; then only the deposit is known. `notDeposited` marks a deposit that
+ * never landed (nothing was spent or refunded).
+ *
+ * The remainder label follows the row's state: "in vault" while funds wait
+ * for a Withdraw (expired orders never auto-refund, including ready_expire
+ * before Withdraw is offered), "refunded" only once the order is cancelled /
+ * filled or expired with nothing left.
  */
 export function paidSummary(
-  row: Pick<TriggerOrderRow, "inputAmountInitial" | "inputAmountUsed" | "canWithdraw" | "fundsMayBeHeld">
-): { paid: string | null; deposited: string; remainder: string | null; remainderLabel: string } {
+  row: Pick<
+    TriggerOrderRow,
+    "inputAmountInitial" | "inputAmountUsed" | "inputAmountRemaining" | "canWithdraw" | "fundsMayBeHeld" | "status" | "state"
+  >
+): { paid: string | null; deposited: string; remainder: string | null; remainderLabel: string; notDeposited?: true } {
   const deposited = safeBigNumber(row.inputAmountInitial);
-  const remainderLabel = row.canWithdraw ? "in vault" : row.fundsMayBeHeld ? "may be held" : "refunded";
+  if (row.state === "deposit_failed") {
+    return { paid: null, deposited: row.inputAmountInitial, remainder: null, remainderLabel: "not deposited", notDeposited: true };
+  }
+  const remainderLabel = remainderLabelFor(row);
   if (row.inputAmountUsed === undefined || !deposited.isFinite()) {
     return { paid: null, deposited: row.inputAmountInitial, remainder: null, remainderLabel };
   }
@@ -137,6 +149,35 @@ export function paidSummary(
     remainder: rest.gt(0) ? rest.toFixed(0) : null,
     remainderLabel,
   };
+}
+
+function remainderLabelFor(
+  row: Pick<TriggerOrderRow, "inputAmountRemaining" | "canWithdraw" | "fundsMayBeHeld" | "status">
+): string {
+  if (row.canWithdraw) return "in vault";
+  if (row.fundsMayBeHeld) return "may be held";
+  switch (row.status) {
+    case "cancelled":
+    case "filled":
+      return "refunded";
+    case "expired":
+      // Expired orders keep their funds until withdrawn.
+      return safeBigNumber(row.inputAmountRemaining).gt(0) ? "in vault" : "refunded";
+    case "needs_withdraw":
+    case "withdrawing":
+      return "in vault";
+    case "open":
+    case "filling":
+      return "unfilled";
+    default:
+      // failed / unknown: where the rest went is not reported.
+      return "unspent";
+  }
+}
+
+/** Remainder labels that mean funds still wait somewhere (highlighted). */
+export function remainderNeedsAttention(label: string): boolean {
+  return label === "in vault" || label === "may be held";
 }
 
 /**

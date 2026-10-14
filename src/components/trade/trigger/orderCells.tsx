@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { createContext, useContext, useMemo } from "react";
 import { ArrowUpRight, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,11 +41,12 @@ export function useRowsMetadata(rows: readonly TriggerOrderRow[]): Record<string
   return useTokenMetadata(mints).data;
 }
 
-export function TypeCell({ row }: { row: TriggerOrderRow }) {
+export function TypeCell({ row, className }: { row: TriggerOrderRow; className?: string }) {
   const side = rowSide(row);
   return (
     <span
       className={cn(
+        className,
         "truncate font-medium",
         side === "buy" ? "text-primary" : side === "sell" ? "text-destructive" : "text-foreground"
       )}
@@ -55,11 +56,19 @@ export function TypeCell({ row }: { row: TriggerOrderRow }) {
   );
 }
 
-export function PairCell({ row, metadata }: { row: TriggerOrderRow; metadata?: Record<string, TokenInfo> }) {
+export function PairCell({
+  row,
+  metadata,
+  className,
+}: {
+  row: TriggerOrderRow;
+  metadata?: Record<string, TokenInfo>;
+  className?: string;
+}) {
   const baseMint = baseMintOf(row);
   const quoteMint = baseMint === row.inputMint ? row.outputMint : row.inputMint;
   return (
-    <span className="truncate" title={`${row.inputMint} → ${row.outputMint}`}>
+    <span className={cn("truncate", className)} title={`${row.inputMint} → ${row.outputMint}`}>
       <span className="font-medium">{symbolFor(baseMint, metadata)}</span>
       <span className="text-muted-foreground">/{symbolFor(quoteMint, metadata)}</span>
     </span>
@@ -221,50 +230,155 @@ export function RowActions({
   return <span className="text-[10px] text-muted-foreground">—</span>;
 }
 
+// --- One row, two layouts ------------------------------------------------------
+//
+// The tables follow their CONTAINER's width (Tailwind container queries; the
+// table component's root carries `@container`), not the viewport: in the
+// terminal the account panel can be ~480px wide on a 1024px screen. Each order
+// renders ONCE: a stacked card in a narrow container, turned into a grid row
+// from the breakpoint up (wrappers become `display: contents`, cells are put
+// in column order with `order`). No hidden duplicate buttons or timers.
+
 /**
- * Small-screen row: status and action on the first line so they never sit
- * off-screen, details below.
+ * Container-query class sets per breakpoint. Literal strings so Tailwind
+ * generates them: "open" switches at 48rem, "history" at 56rem.
  */
-export function OrderCard({
+const WIDE = {
+  open: {
+    row: "@[48rem]:grid @[48rem]:items-center @[48rem]:border-b-0 @[48rem]:py-1",
+    contents: "@[48rem]:contents",
+    narrowOnly: "@[48rem]:hidden",
+    wideGrid: "hidden @[48rem]:grid",
+    wideInline: "hidden @[48rem]:inline",
+    left: "@[48rem]:text-left",
+    text: "@[48rem]:text-[11px]",
+    order: [
+      "",
+      "@[48rem]:order-1",
+      "@[48rem]:order-2",
+      "@[48rem]:order-3",
+      "@[48rem]:order-4",
+      "@[48rem]:order-5",
+      "@[48rem]:order-6",
+      "@[48rem]:order-7",
+      "@[48rem]:order-8",
+      "@[48rem]:order-9",
+      "@[48rem]:order-10",
+    ],
+  },
+  history: {
+    row: "@[56rem]:grid @[56rem]:items-center @[56rem]:border-b-0 @[56rem]:py-1",
+    contents: "@[56rem]:contents",
+    narrowOnly: "@[56rem]:hidden",
+    wideGrid: "hidden @[56rem]:grid",
+    wideInline: "hidden @[56rem]:inline",
+    left: "@[56rem]:text-left",
+    text: "@[56rem]:text-[11px]",
+    order: [
+      "",
+      "@[56rem]:order-1",
+      "@[56rem]:order-2",
+      "@[56rem]:order-3",
+      "@[56rem]:order-4",
+      "@[56rem]:order-5",
+      "@[56rem]:order-6",
+      "@[56rem]:order-7",
+      "@[56rem]:order-8",
+      "@[56rem]:order-9",
+      "@[56rem]:order-10",
+    ],
+  },
+} as const;
+
+export type RowLayout = keyof typeof WIDE;
+type WideClasses = (typeof WIDE)[RowLayout];
+
+/** Class sets for `layout` (header row, footer notes). */
+export function wideClasses(layout: RowLayout): WideClasses {
+  return WIDE[layout];
+}
+
+const RowLayoutContext = createContext<WideClasses | null>(null);
+
+/**
+ * One order. Narrow container: type + pair, then status + action on the first
+ * line (never off-screen), details below as label / value lines. From the
+ * layout's breakpoint up: a grid row with `gridCols`; type and pair are
+ * columns 1 and 2, the details follow in their `order`, and status / action
+ * sit at `statusOrder` / `actionOrder`.
+ */
+export function OrderRow({
   row,
   metadata,
+  layout,
+  gridCols,
+  statusOrder,
+  actionOrder,
   action,
   children,
 }: {
   row: TriggerOrderRow;
   metadata?: Record<string, TokenInfo>;
+  layout: RowLayout;
+  /** grid-cols-[...] (plus column gap) used from the breakpoint up. */
+  gridCols: string;
+  statusOrder: number;
+  actionOrder: number;
   action: React.ReactNode;
   children?: React.ReactNode;
 }) {
+  const w = WIDE[layout];
   return (
     <div
       role="listitem"
       className={cn(
-        "space-y-0.5 border-b border-l-2 border-b-border/30 px-3 py-1.5 text-[11px]",
+        "flex flex-col gap-y-0.5 border-b border-l-2 border-b-border/30 px-3 py-1.5 text-[11px]",
+        gridCols,
+        w.row,
         row.canWithdraw || row.fundsMayBeHeld ? "border-l-yellow-500 bg-yellow-500/5" : "border-l-transparent"
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <TypeCell row={row} />
-          <PairCell row={row} metadata={metadata} />
+      <div className={cn("flex items-center justify-between gap-2", w.contents)}>
+        <span className={cn("flex min-w-0 items-center gap-1.5", w.contents)}>
+          <TypeCell row={row} className={w.order[1]} />
+          <PairCell row={row} metadata={metadata} className={w.order[2]} />
         </span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          <StatusChip row={row} />
-          {action}
+        <span className={cn("flex shrink-0 items-center gap-1.5", w.contents)}>
+          <span className={cn("min-w-0", w.order[statusOrder])}>
+            <StatusChip row={row} />
+          </span>
+          <span className={cn("flex justify-end", w.order[actionOrder])}>{action}</span>
         </span>
       </div>
-      {children}
+      <RowLayoutContext.Provider value={w}>{children}</RowLayoutContext.Provider>
     </div>
   );
 }
 
-/** Label / value line inside an OrderCard. */
-export function CardLine({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * Label / value line inside an OrderRow; from the breakpoint up only the value
+ * shows, as the grid cell at position `order`.
+ */
+export function CardLine({
+  label,
+  order = 0,
+  align = "right",
+  children,
+}: {
+  label: string;
+  /** Column position in the wide layout (1-based; 1 and 2 are type and pair). */
+  order?: number;
+  /** Alignment of the value in the wide layout (cards are always right-aligned). */
+  align?: "left" | "right";
+  children: React.ReactNode;
+}) {
+  const w = useContext(RowLayoutContext);
   return (
-    <div className="flex items-baseline justify-between gap-3 text-[10px]">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 truncate text-right">{children}</span>
+    <div className={cn("flex items-baseline justify-between gap-3 text-[10px]", w?.contents, w?.text)}>
+      <span className={cn("shrink-0 text-muted-foreground", w?.narrowOnly)}>{label}</span>
+      <span className={cn("min-w-0 truncate text-right", w?.order[order], align === "left" && w?.left)}>
+        {children}
+      </span>
     </div>
   );
 }

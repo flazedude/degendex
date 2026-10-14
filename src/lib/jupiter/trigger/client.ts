@@ -44,6 +44,8 @@ export class TriggerApiError extends Error {
   readonly unknownOutcome: boolean;
   /** The response body was not JSON (e.g. a platform/CDN error page). */
   readonly nonJson: boolean;
+  /** Our proxy refused the call (kill switch); Jupiter never saw it. */
+  readonly disabled: boolean;
   readonly retryAfterMs?: number;
   readonly details?: Record<string, unknown>;
 
@@ -55,6 +57,7 @@ export class TriggerApiError extends Error {
       authError?: boolean;
       unknownOutcome?: boolean;
       nonJson?: boolean;
+      disabled?: boolean;
       retryAfterMs?: number;
       details?: Record<string, unknown>;
     } = {}
@@ -66,6 +69,7 @@ export class TriggerApiError extends Error {
     this.authError = opts.authError ?? false;
     this.unknownOutcome = opts.unknownOutcome ?? false;
     this.nonJson = opts.nonJson ?? false;
+    this.disabled = opts.disabled ?? false;
     this.retryAfterMs = opts.retryAfterMs;
     this.details = opts.details;
   }
@@ -154,6 +158,7 @@ function errorFromResult(res: RawResult): TriggerApiError {
     authError: b.authError === true,
     unknownOutcome: b.unknownOutcome === true,
     nonJson: res.nonJson,
+    disabled: b.disabled === true,
     details: isObj(b.details) ? b.details : undefined,
   });
 }
