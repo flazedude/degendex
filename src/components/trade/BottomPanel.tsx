@@ -12,15 +12,14 @@ import { useRefreshBalances } from "@/hooks/useTokenBalance";
 import { useTokenMetadata } from "@/hooks/useTokenMetadata";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
 import { useTriggerOrders } from "@/hooks/useTriggerOrders";
+import { useWalletAssetRows } from "@/hooks/useWalletAssetRows";
 import { useWalletHoldings } from "@/hooks/useWalletHoldings";
 import { MANAGE_ENABLED } from "@/lib/jupiter/trigger/config";
 import { cn, shortenAddress } from "@/lib/utils";
 import { useTerminalUiStore, type BottomTabId } from "@/store/useTerminalUiStore";
 import { OpenOrdersTable, OrderHistoryTable, useOpenOrdersBadge } from "./trigger";
 import {
-  buildBalanceRows,
   buildVaultRows,
-  isNftLike,
   totalValueUsd,
   type BalanceRow,
   type VaultRow,
@@ -135,18 +134,7 @@ function Balances({ mint }: { mint: string }) {
   const [showSmall, setShowSmall] = useState(false);
   const setTab = useTerminalUiStore((s) => s.setBottomTab);
 
-  const mints = useMemo(() => (holdings.data ?? []).map((h) => h.mint), [holdings.data]);
-  const metadata = useTokenMetadata(mints);
-  // Jupiter only prices tokens it lists, so skip mints with no metadata (spam
-  // airdrops) instead of spending the shared price budget on them. If the
-  // metadata call fails, price everything rather than show nothing.
-  const priceMints = useMemo(() => {
-    if (metadata.data) return mints.filter((m) => metadata.data[m]);
-    // Fallback without metadata: skip NFT-like holdings Jupiter never prices.
-    if (!metadata.isError) return [];
-    return (holdings.data ?? []).filter((h) => h.decimals > 0 && !isNftLike(h)).map((h) => h.mint);
-  }, [mints, holdings.data, metadata.data, metadata.isError]);
-  const prices = useTokenPrices(priceMints);
+  const { rows, metadata, prices } = useWalletAssetRows(holdings.data, mint);
 
   // Trigger v2 is custodial: an order's input sits in Jupiter's vault, not in
   // the wallet. Shown separately (and only when signed in to read orders).
@@ -171,10 +159,6 @@ function Balances({ mint }: { mint: string }) {
     );
   }, [vaultOrders, holdings.data, vaultMeta.data, vaultPrices.data]);
 
-  const rows = useMemo(
-    () => buildBalanceRows(holdings.data ?? [], metadata.data, prices.data, mint),
-    [holdings.data, metadata.data, prices.data, mint]
-  );
   const visible = showSmall ? rows : rows.filter((r) => !r.isDust);
   const hiddenCount = rows.length - rows.filter((r) => !r.isDust).length;
   const total = totalValueUsd(rows);

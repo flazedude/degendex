@@ -11,7 +11,8 @@ export const DUST_USD = 0.01;
 
 export interface BalanceRow {
   mint: string;
-  /** Jupiter symbol, or the shortened mint when the token is unknown. */
+  wrappedSol?: true;
+  /** Token symbol, or the shortened mint when the token is unknown. */
   symbol: string;
   name?: string;
   logoURI?: string;
@@ -71,8 +72,9 @@ export function buildBalanceRows(
         (prices !== undefined && !!meta && meta.isVerified !== true));
     return {
       mint: h.mint,
-      symbol: meta?.symbol || shortenAddress(h.mint),
-      name: meta?.name,
+      wrappedSol: h.wrappedSol,
+      symbol: h.wrappedSol ? "wSOL" : meta?.symbol || shortenAddress(h.mint),
+      name: h.wrappedSol ? "Wrapped SOL" : meta?.name,
       logoURI: meta?.logoURI,
       known: !!meta,
       isVerified: meta?.isVerified === true,
@@ -83,7 +85,7 @@ export function buildBalanceRows(
       change24hPct:
         p && typeof p.change24hPct === "number" && Number.isFinite(p.change24hPct) ? p.change24hPct : null,
       isDust: zero || (valueUsd !== null && valueUsd < DUST_USD) || hiddenUnpriced,
-      isCurrent: h.mint === currentMint,
+      isCurrent: !h.wrappedSol && h.mint === currentMint,
     };
   });
   return rows.sort(compareRows);

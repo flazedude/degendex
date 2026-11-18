@@ -53,20 +53,25 @@ export function sumTokenAccounts(results: readonly ParsedTokenAccountsResult[]):
 /**
  * Wallet holdings: native SOL first (as SOL_MINT, 9 decimals, listed even at
  * zero), then every SPL holding with a non-zero balance, sorted by mint.
- * Wrapped-SOL token accounts are left out: the swap spends native SOL, so
- * SOL_MINT means the native balance (as in useTokenBalance).
+ * Trade uses the native SOL balance. Portfolio can opt in to a separate
+ * wrapped SOL holding from the same parsed SPL accounts.
  */
-export function buildHoldings(solLamports: string | undefined, spl: TokenHoldingMap | undefined): WalletHolding[] {
+export function buildHoldings(
+  solLamports: string | undefined,
+  spl: TokenHoldingMap | undefined,
+  { includeWrappedSol = false }: { includeWrappedSol?: boolean } = {}
+): WalletHolding[] {
   const out: WalletHolding[] = [];
   if (solLamports !== undefined && /^\d+$/.test(solLamports)) {
     out.push({ mint: SOL_MINT, raw: solLamports, decimals: 9 });
   }
   if (spl) {
     for (const mint of Object.keys(spl).sort()) {
-      if (mint === SOL_MINT) continue;
+      const wrappedSol = mint === SOL_MINT;
+      if (wrappedSol && !includeWrappedSol) continue;
       const h = spl[mint];
       if (!/^\d+$/.test(h.raw) || /^0+$/.test(h.raw)) continue;
-      out.push({ mint, raw: h.raw, decimals: h.decimals });
+      out.push({ mint, raw: h.raw, decimals: h.decimals, ...(wrappedSol && { wrappedSol: true }) });
     }
   }
   return out;

@@ -66,7 +66,7 @@ export function tokenPricesQuery(ids: readonly string[]) {
     queryKey: ["tokenPrices", ids.join(",")],
     enabled: ids.length > 0,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<PricesData> => {
-      const parts = await Promise.all(
+      const results = await Promise.allSettled(
         chunkList(ids, MAX_PRICE_IDS).map((chunk) =>
           fetchMarketJson<PricesResponse>(
             `/api/market/prices?${new URLSearchParams({ ids: chunk.join(",") })}`,
@@ -74,7 +74,14 @@ export function tokenPricesQuery(ids: readonly string[]) {
           )
         )
       );
-      return mergePriceParts(ids, parts);
+      signal.throwIfAborted();
+      const parts = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const failure = results.find((result) => result.status === "rejected");
+      // Preserve React Query's retry and cached-data behavior on a complete outage.
+      if (parts.length === 0 && failure) throw failure.reason;
+
+      const merged = mergePriceParts(ids, parts);
+      return { ...merged, stale: merged.stale || !!failure };
     },
     staleTime: 15_000,
     retry: retryOnce,

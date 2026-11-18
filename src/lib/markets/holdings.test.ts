@@ -52,6 +52,19 @@ describe("buildHoldings", () => {
     ]);
   });
 
+  it("includes wrapped SOL separately for Portfolio and sums its token accounts", () => {
+    const spl = sumTokenAccounts([
+      { value: [acct(SOL_MINT, "100000000", 9), acct(SOL_MINT, "150000000", 9)] },
+    ]);
+    expect(buildHoldings("2000000000", spl, { includeWrappedSol: true })).toEqual([
+      { mint: SOL_MINT, raw: "2000000000", decimals: 9 },
+      { mint: SOL_MINT, raw: "250000000", decimals: 9, wrappedSol: true },
+    ]);
+    expect(buildHoldings("2000000000", spl)).toEqual([
+      { mint: SOL_MINT, raw: "2000000000", decimals: 9 },
+    ]);
+  });
+
   it("handles missing parts", () => {
     expect(buildHoldings(undefined, undefined)).toEqual([]);
     expect(buildHoldings("12", undefined)).toEqual([{ mint: SOL_MINT, raw: "12", decimals: 9 }]);
