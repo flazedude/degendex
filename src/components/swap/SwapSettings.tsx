@@ -18,6 +18,7 @@ import {
   MIN_CUSTOM_SLIPPAGE_BPS,
 } from "@/lib/jupiter/params";
 import { cn } from "@/lib/utils";
+import { slippageLabel } from "./swapDetails";
 
 const PRESETS: { label: string; value: SlippageSetting }[] = [
   { label: "Auto", value: "auto" },
@@ -37,11 +38,9 @@ function percentToBps(text: string): number | null {
     : null;
 }
 
-export function slippageLabel(slippage: SlippageSetting): string {
-  return slippage === "auto" ? "Auto" : `${slippage / 100}%`;
-}
+export { slippageLabel };
 
-export function SwapSettings() {
+export function SwapSettings({ triggerClassName }: { triggerClassName?: string } = {}) {
   const slippage = useSettingsStore((s) => s.slippage);
 
   return (
@@ -50,7 +49,10 @@ export function SwapSettings() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 px-2 font-mono text-xs text-muted-foreground hover:text-foreground"
+          className={cn(
+            "h-7 gap-1.5 px-2 font-mono text-xs text-muted-foreground hover:text-foreground",
+            triggerClassName
+          )}
           aria-label="Swap settings"
         >
           <Settings2 className="h-4 w-4" />

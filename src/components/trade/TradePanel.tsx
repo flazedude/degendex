@@ -1,137 +1,106 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { ArrowUpRight } from "lucide-react";
+import { useSettingsStore } from "@/store/useSettingsStore";
+import { useSwapInFlight } from "@/store/usePendingSwapStore";
+import { JUPITER_APP_URL, TRIGGER_MODE, TRIGGER_OFF_MESSAGE } from "@/lib/jupiter/trigger/config";
+import type { TokenInfo } from "@/lib/tokens/types";
 import { cn } from "@/lib/utils";
-import { USDC_MINT } from "@/lib/constants";
+import { MarketOrderForm } from "./MarketOrderForm";
+import { DcaForm, LimitOrderForm, isStableToken } from "./trigger";
 
-import type { Market } from "@/app/trade/page";
+const TABS = [
+  { id: "market", label: "Market", trigger: false },
+  { id: "limit", label: "Limit", trigger: true },
+  { id: "dca", label: "DCA", trigger: true },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
 
-interface TradePanelProps {
-  market: Market;
-}
+const TRIGGER_OFF_TITLE = "Turned off here";
+const SWAP_RUNNING = "Wait for the market order to finish";
 
-// The terminal has no order engine of its own. Market orders hand off to the
-// Swap page (Jupiter routing); limit orders are not available yet.
-export function TradePanel({ market }: TradePanelProps) {
-  const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [orderType, setOrderType] = useState<"market" | "limit">("market");
+/**
+ * Order entry for the terminal. Market orders swap via Jupiter on the same
+ * engine as the Swap page; USDC is the quote (SOL when the base is USDC).
+ * Limit and DCA orders run on Jupiter Trigger v2 against USDC.
+ */
+export function TradePanel({ base }: { base: TokenInfo }) {
+  const [tab, setTab] = useState<TabId>("market");
+  const { publicKey } = useWallet();
+  // Leaving the Market tab mid-swap would hide the running order's progress.
+  const swapRunning = !!useSwapInFlight(publicKey?.toBase58());
+  // Slippage is a persisted setting shared with the Swap page.
+  useEffect(() => {
+    void useSettingsStore.persist.rehydrate();
+  }, []);
 
-  const tradable = orderType === "market" && !!market.mint;
-  const pay = side === "buy" ? "USDC" : market.base;
-  const receive = side === "buy" ? market.base : "USDC";
-  const swapHref = market.mint
-    ? side === "buy"
-      ? `/swap?inputMint=${USDC_MINT}&outputMint=${market.mint}`
-      : `/swap?inputMint=${market.mint}&outputMint=${USDC_MINT}`
-    : null;
+  // Fully off ("off"): Limit / DCA are locked and the note points to jup.ag,
+  // which manages the same vault. With only new orders paused
+  // ("new-orders-off") the tabs stay open and the forms show their own note.
+  const triggerOff = TRIGGER_MODE === "off";
+  const active: TabId = triggerOff && tab !== "market" ? "market" : tab;
+  const stableBase = isStableToken(base);
 
   return (
-    <div className="p-3 space-y-2">
-      {/* Order type tabs */}
-      <div className="flex gap-1 text-[11px]">
-        {(["market", "limit"] as const).map((type) => (
-          <button
-            key={type}
-            onClick={() => setOrderType(type)}
-            className={cn(
-              "px-2 py-1 font-medium capitalize transition-colors",
-              orderType === type
-                ? "text-foreground border-b border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {type}
-          </button>
-        ))}
+    <div className="space-y-2 p-3">
+      <div>
+        <div role="tablist" aria-label="Order type" className="flex gap-1 border-b border-border/50 text-[11px]">
+          {TABS.map((t) => {
+            const available = !t.trigger || !triggerOff;
+            const locked = swapRunning && t.trigger && t.id !== active;
+            const enabled = available && !locked;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`order-tab-${t.id}`}
+                aria-selected={active === t.id}
+                aria-controls="order-tabpanel"
+                disabled={!enabled}
+                title={!available ? TRIGGER_OFF_TITLE : locked ? SWAP_RUNNING : undefined}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  "-mb-px border-b px-2 py-1 font-medium transition-colors",
+                  active === t.id
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                )}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        {triggerOff && (
+          <p className="pt-1 text-[10px] text-muted-foreground">
+            Limit orders and DCA are turned off here. {TRIGGER_OFF_MESSAGE}{" "}
+            <a
+              href={JUPITER_APP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 text-primary hover:underline"
+            >
+              Open jup.ag <ArrowUpRight className="h-2.5 w-2.5" />
+            </a>
+          </p>
+        )}
       </div>
-
-      {/* Buy/Sell tabs (only meaningful when the market can be swapped) */}
-      <div className="grid grid-cols-2 gap-1">
-        <button
-          onClick={() => setSide("buy")}
-          disabled={!tradable}
-          className={cn(
-            "py-1.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-            side === "buy"
-              ? "bg-primary/20 text-primary border border-primary/50"
-              : "bg-muted/30 text-muted-foreground border border-transparent enabled:hover:text-foreground"
-          )}
-        >
-          Buy
-        </button>
-        <button
-          onClick={() => setSide("sell")}
-          disabled={!tradable}
-          className={cn(
-            "py-1.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-            side === "sell"
-              ? "bg-destructive/20 text-destructive border border-destructive/50"
-              : "bg-muted/30 text-muted-foreground border border-transparent enabled:hover:text-foreground"
-          )}
-        >
-          Sell
-        </button>
+      <div id="order-tabpanel" role="tabpanel" aria-labelledby={`order-tab-${active}`}>
+        {active === "market" ? (
+          <MarketOrderForm base={base} />
+        ) : stableBase ? (
+          <p className="border border-border/50 bg-background/30 px-2 py-3 text-center text-[11px] text-muted-foreground">
+            Pick a non-stable token for limit orders and DCA
+          </p>
+        ) : active === "limit" ? (
+          <LimitOrderForm base={base} />
+        ) : (
+          <DcaForm base={base} />
+        )}
       </div>
-
-      {orderType === "limit" ? (
-        <>
-          <Button disabled className="w-full h-9 text-xs font-bold bg-muted text-muted-foreground">
-            Limit orders coming soon
-          </Button>
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            {market.mint
-              ? "Use the Market tab to swap via Jupiter on the Swap page."
-              : `${market.base} has no verified Solana token here, so this market is chart only.`}
-          </p>
-        </>
-      ) : swapHref ? (
-        <>
-          {/* Route preview: what the Swap page will be prefilled with */}
-          <div className="border border-border/50 bg-background/50 px-2 py-1.5 text-[10px] font-mono space-y-0.5">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Pay</span>
-              <span>{pay}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Receive</span>
-              <span>{receive}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Route</span>
-              <span>Jupiter, quoted on Swap</span>
-            </div>
-          </div>
-          <Button
-            asChild
-            className={cn(
-              "w-full h-9 text-xs font-bold",
-              side === "buy"
-                ? "bg-primary text-primary-foreground hover:bg-primary/90 glow-green-sm"
-                : "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            )}
-          >
-            <Link href={swapHref}>
-              {side === "buy" ? `Buy ${market.base} on Swap` : `Sell ${market.base} on Swap`}
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </Button>
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            Opens Swap with this pair filled in. Amount and slippage are set there.
-          </p>
-        </>
-      ) : (
-        <>
-          <Button disabled className="w-full h-9 text-xs font-bold bg-muted text-muted-foreground">
-            Not tradable on Solana
-          </Button>
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            {market.base} has no verified Solana token here, so this market is chart only.
-          </p>
-        </>
-      )}
     </div>
   );
 }

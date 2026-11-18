@@ -5,12 +5,16 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction, type PublicKey } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import { toast } from "sonner";
-import { useSwapStore } from "@/store/useSwapStore";
-import { useSettingsStore } from "@/store/useSettingsStore";
+import { useSwapStore, type TokenInfo } from "@/store/useSwapStore";
+import { useSettingsStore, type SlippageSetting } from "@/store/useSettingsStore";
 import {
+  beginSwap,
+  endSwap,
   isSwapBlocked,
   usePendingSwapStore,
+  useSwapInFlight,
   type PendingSwap,
+  type SwapInFlight,
 } from "@/store/usePendingSwapStore";
 import { useRefreshBalances } from "@/hooks/useTokenBalance";
 import { formatTokenAmount, fromBaseUnits, toBaseUnits } from "@/lib/amounts";
@@ -45,8 +49,9 @@ const RETRY_JITTER_MS = 1_000;
 const PENDING_MAX_MS = 90_000;
 const STATUS_POLL_MS = 2_000;
 const RPC_TIMEOUT_MS = 8_000;
+export const SWAP_IN_PROGRESS_MESSAGE = "A swap is already in progress";
 
-interface QuoteRequest {
+export interface QuoteRequest {
   key: string;
   inputMint: string;
   outputMint: string;
@@ -225,18 +230,71 @@ function solscanAction(signature: string | undefined) {
   };
 }
 
+/**
+ * Where a swap's pair and amount come from. Without one, useSwap reads the
+ * Swap page's store; the trade terminal passes its own local state so it never
+ * changes the Swap page's selected pair.
+ */
+export interface SwapSource {
+  inputToken: TokenInfo;
+  outputToken: TokenInfo;
+  /** Exact decimal string typed by the user (never a float). */
+  inputAmount: string;
+  setInputAmount: (v: string) => void;
+}
+
+/** The provided source, else the Swap page's store (no-argument behaviour). */
+export function resolveSwapSource(
+  source: SwapSource | undefined,
+  store: SwapSource
+): SwapSource {
+  return source ?? store;
+}
+
+/**
+ * The quote request for a pair and amount, or null when there is nothing to
+ * quote (empty / invalid amount, or the same mint on both sides). The key
+ * identifies every input the quote depends on.
+ */
+export function buildQuoteRequest(args: {
+  inputMint: string;
+  outputMint: string;
+  /** Base units, from toBaseUnits. */
+  rawAmount: string | null;
+  taker: string | undefined;
+  slippage: SlippageSetting;
+}): QuoteRequest | null {
+  const { inputMint, outputMint, rawAmount, taker, slippage } = args;
+  if (!rawAmount || inputMint === outputMint) return null;
+  const slippageBps = slippage === "auto" ? undefined : slippage;
+  return {
+    key: [inputMint, outputMint, rawAmount, taker ?? "", slippageBps ?? "auto"].join("|"),
+    inputMint,
+    outputMint,
+    amount: rawAmount,
+    taker,
+    slippageBps,
+  };
+}
+
 export interface ExecuteSwapOptions {
   /** Price impact (percent) the user explicitly accepted for an extreme quote. */
   acceptedImpactPct?: number;
 }
 
-export function useSwap() {
+export function useSwap(source?: SwapSource) {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
-  const inputToken = useSwapStore((s) => s.inputToken);
-  const outputToken = useSwapStore((s) => s.outputToken);
-  const inputAmount = useSwapStore((s) => s.inputAmount);
-  const setInputAmount = useSwapStore((s) => s.setInputAmount);
+  const storeInputToken = useSwapStore((s) => s.inputToken);
+  const storeOutputToken = useSwapStore((s) => s.outputToken);
+  const storeInputAmount = useSwapStore((s) => s.inputAmount);
+  const storeSetInputAmount = useSwapStore((s) => s.setInputAmount);
+  const { inputToken, outputToken, inputAmount, setInputAmount } = resolveSwapSource(source, {
+    inputToken: storeInputToken,
+    outputToken: storeOutputToken,
+    inputAmount: storeInputAmount,
+    setInputAmount: storeSetInputAmount,
+  });
   const slippage = useSettingsStore((s) => s.slippage);
   const refreshBalances = useRefreshBalances();
 
@@ -246,29 +304,24 @@ export function useSwap() {
     [inputAmount, inputToken.decimals]
   );
 
-  const request = useMemo<QuoteRequest | null>(() => {
-    if (!rawAmount || inputToken.mint === outputToken.mint) return null;
-    const slippageBps = slippage === "auto" ? undefined : slippage;
-    return {
-      key: [
-        inputToken.mint,
-        outputToken.mint,
+  const request = useMemo(
+    () =>
+      buildQuoteRequest({
+        inputMint: inputToken.mint,
+        outputMint: outputToken.mint,
         rawAmount,
-        taker ?? "",
-        slippageBps ?? "auto",
-      ].join("|"),
-      inputMint: inputToken.mint,
-      outputMint: outputToken.mint,
-      amount: rawAmount,
-      taker,
-      slippageBps,
-    };
-  }, [rawAmount, inputToken.mint, outputToken.mint, taker, slippage]);
+        taker,
+        slippage,
+      }),
+    [rawAmount, inputToken.mint, outputToken.mint, taker, slippage]
+  );
 
   const [result, setResult] = useState<QuoteResult | null>(null);
   const [inflightKey, setInflightKey] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
   const pending = usePendingSwapStore((s) => s.pending);
+  // Any swap from this wallet (this hook's, or one started by another mount).
+  const inFlight = useSwapInFlight(taker);
   const [now, setNow] = useState(0);
 
   const seqRef = useRef(0);
@@ -282,9 +335,9 @@ export function useSwap() {
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchingRef = useRef(false);
   const runQuoteRef = useRef<(req: QuoteRequest) => Promise<void>>(async () => {});
-  const latestRef = useRef({ request, result, inputToken, outputToken });
+  const latestRef = useRef({ request, result, inputToken, outputToken, setInputAmount });
   useEffect(() => {
-    latestRef.current = { request, result, inputToken, outputToken };
+    latestRef.current = { request, result, inputToken, outputToken, setInputAmount };
   });
 
   /** Invalidates any in-flight quote so it can no longer set state. */
@@ -519,14 +572,13 @@ export function useSwap() {
     };
   }, [cancelInflight, clearRetry, stopPendingWatch]);
 
-  // Resume watching a block that outlived an earlier mount of this hook.
+  // Watch a block nobody here is watching yet: one that outlived an earlier
+  // mount, or one recorded by a swap whose form unmounted while it ran.
   useEffect(() => {
-    if (watchingRef.current) return;
-    const p = usePendingSwapStore.getState().pending;
-    if (!p) return;
-    if (p.until <= Date.now()) usePendingSwapStore.getState().clearPending(p);
-    else watchPending(p);
-  }, [watchPending]);
+    if (watchingRef.current || !pending) return;
+    if (pending.until <= Date.now()) usePendingSwapStore.getState().clearPending(pending);
+    else watchPending(pending);
+  }, [pending, watchPending]);
 
   const matching = request && result?.key === request.key ? result : null;
   const order = matching?.order ?? null;
@@ -566,8 +618,9 @@ export function useSwap() {
         toast.error("Connect your wallet first");
         return;
       }
+      const wallet = publicKey.toBase58();
       // An earlier swap from this wallet may still land.
-      if (isSwapBlocked(publicKey.toBase58())) return;
+      if (isSwapBlocked(wallet)) return;
       if (!signTransaction) {
         toast.error("This wallet cannot sign transactions");
         return;
@@ -577,13 +630,28 @@ export function useSwap() {
       const shown =
         req && snap.result?.key === req.key ? snap.result : null;
       // Only ever sign for the quote currently on screen, for this wallet.
-      if (!req || !shown?.order || req.taker !== publicKey.toBase58()) return;
+      if (!req || !shown?.order || req.taker !== wallet) return;
+
+      const inTok = snap.inputToken;
+      const outTok = snap.outputToken;
+      // One swap per wallet at a time, across every form and page: a form
+      // that remounted mid-swap starts with a fresh hook and must not sign a
+      // second one while the first is still being signed or executed.
+      const flight: SwapInFlight | null = beginSwap({
+        wallet,
+        inputMint: inTok.mint,
+        outputMint: outTok.mint,
+        inputSymbol: inTok.symbol,
+        outputSymbol: outTok.symbol,
+      });
+      if (!flight) {
+        toast.error(SWAP_IN_PROGRESS_MESSAGE);
+        return;
+      }
 
       swappingRef.current = true;
       setSwapping(true);
       cancelInflight(); // no background quote may replace the displayed one
-      const inTok = snap.inputToken;
-      const outTok = snap.outputToken;
       const toastId = toast.loading("Preparing swap...");
       let requote = false;
 
@@ -628,7 +696,8 @@ export function useSwap() {
         const tx = VersionedTransaction.deserialize(base64ToBytes(order.transaction!));
         assertWalletSigns(tx, publicKey);
 
-        toast.loading("Confirm in your wallet...", { id: toastId });
+        // Names the pair: the screen may show another market by now.
+        toast.loading(`Confirm ${inTok.symbol} → ${outTok.symbol} in your wallet...`, { id: toastId });
         const signed = await signTransaction(tx);
         // Known before submission when the wallet pays the fee (not gasless).
         const localSignature = feePayerSignature(signed, publicKey);
@@ -675,12 +744,12 @@ export function useSwap() {
           });
           // The order's requestId is consumed: never show or reuse it again.
           setResult(null);
-          setInputAmount("");
+          latestRef.current.setInputAmount("");
         } else if (isUnknownExecuteOutcome(data.code)) {
           // It may still land: never re-sign this requestId, and block new
           // swaps until the outcome is known (or can no longer change).
           setResult(null);
-          setInputAmount("");
+          latestRef.current.setInputAmount("");
           toast.warning(
             signature
               ? "Swap status unknown. Checking whether it landed..."
@@ -718,6 +787,8 @@ export function useSwap() {
           toast.error(msg.length > 120 ? `${msg.slice(0, 119)}…` : msg, { id: toastId });
         }
       } finally {
+        // Runs even after unmount, so the wallet's slot is always released.
+        endSwap(flight);
         swappingRef.current = false;
         setSwapping(false);
         refreshBalances();
@@ -737,7 +808,6 @@ export function useSwap() {
       runQuote,
       scheduleRetry,
       refreshBalances,
-      setInputAmount,
       watchPending,
     ]
   );
@@ -763,7 +833,13 @@ export function useSwap() {
     orderError,
     isStale,
     executeSwap,
+    /** This hook's own swap is running. */
     swapping,
+    /**
+     * A swap from the connected wallet is running here or in another mount
+     * (e.g. before a tab or market change). Block new swaps while set.
+     */
+    swapInFlight: inFlight,
     /** An earlier swap's outcome is unknown and it may still land: block swaps. */
     pendingSwap: activePending
       ? { signature: activePending.signature, canDismiss: !activePending.signature }

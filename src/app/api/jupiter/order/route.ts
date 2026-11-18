@@ -8,8 +8,11 @@ import {
   jupiterHeaders,
   rateLimitedResponse,
   readJson,
+  retryAfterSeconds,
   upstreamError,
 } from "@/lib/jupiter/server";
+import { JUPITER_UPSTREAM } from "@/lib/markets/jupiter";
+import { setCooldown } from "@/lib/server/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +28,12 @@ export async function GET(req: NextRequest) {
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
-    if (res.status === 429) return rateLimitedResponse(res);
+    if (res.status === 429) {
+      // Market data shares this rate limit: make its acquireUpstream() back
+      // off as well. This user-driven route never waits on that budget itself.
+      setCooldown(JUPITER_UPSTREAM, retryAfterSeconds(res.headers));
+      return rateLimitedResponse(res);
+    }
     const body = await readJson(res);
     if (!res.ok || !body || typeof body !== "object") {
       // 4xx bodies carry useful text ("Could not find any route"); 5xx do not.
