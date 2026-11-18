@@ -38,7 +38,7 @@ function errorText(error: unknown): string {
 const TradeRow = memo(function TradeRow({ trade, now }: { trade: MarketTrade; now: number }) {
   const href = solscanTxUrl(trade.txHash);
   const buy = trade.side === "buy";
-  const sideClass = buy ? "text-primary" : "text-destructive";
+  const sideClass = buy ? "text-gain" : "text-loss";
   const content = (
     <>
       <span className="text-muted-foreground" title={new Date(trade.ts).toLocaleString()}>

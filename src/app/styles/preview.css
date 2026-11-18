@@ -1,0 +1,85 @@
+:where(html[data-degn-style]) {
+  --trade-nav-height: 3.125rem;
+  --page-nav-height: 3.5rem;
+}
+
+:where(html[data-degn-style]) .degn-header {
+  background: var(--background);
+}
+
+:where(html[data-degn-style]) .degn-nav {
+  min-height: var(--page-nav-height);
+  gap: 0.625rem;
+}
+
+:where(html[data-degn-style]) .degn-header-trade .degn-nav {
+  height: var(--trade-nav-height);
+  min-height: var(--trade-nav-height);
+}
+
+[data-degn-style] .text-gradient {
+  color: var(--primary);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+[data-degn-style] .degn-wordmark .text-gradient {
+  color: inherit;
+}
+
+[data-degn-style] .animated-gradient {
+  background: var(--hero-background, var(--background));
+  animation: none;
+}
+
+[data-degn-style] :is(.glow-green, .glow-green-sm, .glow-purple) {
+  box-shadow: none;
+}
+
+[data-degn-style] .degn-swap-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: clamp(0.875rem, 2vw, 1.375rem);
+}
+
+[data-degn-style] .degn-swap-card::before {
+  content: none;
+}
+
+:where(html[data-degn-style]) .degn-style-trigger {
+  min-height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: max(2px, var(--radius));
+  background: var(--card);
+}
+
+:where(html[data-degn-style]) .degn-style-trigger:hover {
+  background: var(--accent);
+}
+
+:where(html[data-degn-style]) .degn-style-menu {
+  border-radius: max(4px, var(--radius));
+}
+
+:where(html[data-degn-style]) :is(.degn-market-bar, .degn-ticket, .degn-tape, .degn-account) :where(a, button, input):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+@media (min-width: 64rem) {
+  :where(html[data-degn-style]) .degn-terminal {
+    height: calc(100dvh - var(--trade-nav-height));
+    min-height: 38rem;
+  }
+}
+
+@media (max-width: 32rem) {
+  :where(html[data-degn-style]) .degn-nav {
+    padding-inline: 0.625rem;
+  }
+
+  :where(html[data-degn-style]) .degn-wordmark > :first-child {
+    font-size: 1.125rem;
+  }
+}

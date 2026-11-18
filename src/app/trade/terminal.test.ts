@@ -65,8 +65,8 @@ describe("other formatters", () => {
     expect(formatPct(-0.4)).toBe("-0.40%");
     expect(formatPct(0)).toBe("0.00%");
     expect(formatPct(undefined)).toBe("—");
-    expect(changeClass(2)).toBe("text-primary");
-    expect(changeClass(-2)).toBe("text-destructive");
+    expect(changeClass(2)).toBe("text-gain");
+    expect(changeClass(-2)).toBe("text-loss");
     expect(changeClass(null)).toBe("text-muted-foreground");
   });
 

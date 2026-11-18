@@ -56,20 +56,45 @@ function withAlpha(color: string, alpha: number): string {
 function readPalette(): Palette {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
-  const up = v("--primary", "#00ff88");
-  const down = v("--destructive", "#ff3366");
+  const up = v("--chart-up", v("--primary", "#00ff88"));
+  const down = v("--chart-down", v("--destructive", "#ff3366"));
   const border = v("--border", "#27273a");
   return {
     up,
     down,
     upVol: withAlpha(up, 0.35),
     downVol: withAlpha(down, 0.35),
-    bg: v("--background", "#0a0a0f"),
-    text: v("--muted-foreground", "#71717a"),
-    grid: withAlpha(border, 0.45),
+    bg: v("--chart-background", v("--background", "#0a0a0f")),
+    text: v("--chart-text", v("--muted-foreground", "#71717a")),
+    grid: v("--chart-grid", withAlpha(border, 0.45)),
     border,
-    font: v("--font-geist-mono", "ui-monospace, monospace"),
+    font: v("--font-numbers", v("--font-geist-mono", "ui-monospace, monospace")),
   };
+}
+
+function chartColors(p: Palette) {
+  return {
+    layout: {
+      background: { type: ColorType.Solid as const, color: p.bg },
+      textColor: p.text,
+      fontFamily: p.font,
+    },
+    grid: { vertLines: { color: p.grid }, horzLines: { color: p.grid } },
+    rightPriceScale: { borderColor: p.border },
+    timeScale: { borderColor: p.border },
+  };
+}
+
+function candleColors(p: Palette) {
+  return { upColor: p.up, downColor: p.down, wickUpColor: p.up, wickDownColor: p.down };
+}
+
+function volumeBars(candles: readonly Candle[], p: Palette): HistogramData<UTCTimestamp>[] {
+  return candles.map((c) => ({
+    time: c.time as UTCTimestamp,
+    value: c.volume,
+    color: c.close >= c.open ? p.upVol : p.downVol,
+  }));
 }
 
 function readStoredTimeframe(): Timeframe {
@@ -128,6 +153,7 @@ export function PriceChart({ mint }: { mint: string }) {
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const paletteRef = useRef<Palette | null>(null);
+  const volumeCandlesRef = useRef<readonly Candle[]>([]);
   const shownKeyRef = useRef<string | null>(null);
   const liveRef = useRef<Candle | null>(null);
   const [hover, setHover] = useState<Legend | null>(null);
@@ -144,27 +170,15 @@ export function PriceChart({ mint }: { mint: string }) {
     if (!box) return;
     const p = readPalette();
     paletteRef.current = p;
+    const colors = chartColors(p);
     const chart = createChart(box, {
+      ...colors,
       autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: p.bg },
-        textColor: p.text,
-        fontSize: 10,
-        fontFamily: p.font,
-        attributionLogo: true,
-      },
-      grid: { vertLines: { color: p.grid }, horzLines: { color: p.grid } },
-      rightPriceScale: { borderColor: p.border },
-      timeScale: { borderColor: p.border, timeVisible: true, secondsVisible: false, rightOffset: 4 },
+      layout: { ...colors.layout, fontSize: 10, attributionLogo: true },
+      timeScale: { ...colors.timeScale, timeVisible: true, secondsVisible: false, rightOffset: 4 },
       crosshair: { mode: CrosshairMode.Normal },
     });
-    const candle = chart.addSeries(CandlestickSeries, {
-      upColor: p.up,
-      downColor: p.down,
-      wickUpColor: p.up,
-      wickDownColor: p.down,
-      borderVisible: false,
-    });
+    const candle = chart.addSeries(CandlestickSeries, { ...candleColors(p), borderVisible: false });
     candle.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.24 } });
     const volume = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
@@ -193,7 +207,18 @@ export function PriceChart({ mint }: { mint: string }) {
     chartRef.current = chart;
     candleRef.current = candle;
     volumeRef.current = volume;
+
+    const styleObserver = new MutationObserver(() => {
+      const nextPalette = readPalette();
+      paletteRef.current = nextPalette;
+      chart.applyOptions(chartColors(nextPalette));
+      candle.applyOptions(candleColors(nextPalette));
+      volume.setData(volumeBars(volumeCandlesRef.current, nextPalette));
+    });
+    styleObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-degn-style"] });
+
     return () => {
+      styleObserver.disconnect();
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
@@ -213,6 +238,7 @@ export function PriceChart({ mint }: { mint: string }) {
     const p = paletteRef.current;
     if (!chart || !candle || !volume || !p) return;
     liveRef.current = null;
+    volumeCandlesRef.current = candles;
     if (candles.length === 0) {
       candle.setData([]);
       volume.setData([]);
@@ -221,13 +247,7 @@ export function PriceChart({ mint }: { mint: string }) {
     }
     candle.applyOptions({ priceFormat: chartPriceFormat(candles[candles.length - 1].close) });
     candle.setData(candles.map(toBar));
-    volume.setData(
-      candles.map((c) => ({
-        time: c.time as UTCTimestamp,
-        value: c.volume,
-        color: c.close >= c.open ? p.upVol : p.downVol,
-      }))
-    );
+    volume.setData(volumeBars(candles, p));
     if (shownKeyRef.current !== dataKey) {
       shownKeyRef.current = dataKey;
       const n = candles.length;
@@ -331,7 +351,7 @@ export function PriceChart({ mint }: { mint: string }) {
             {(["open", "high", "low", "close"] as const).map((k) => (
               <span key={k} className="whitespace-nowrap">
                 {k[0].toUpperCase()}{" "}
-                <span className={legendUp ? "text-primary" : "text-destructive"}>
+                <span className={legendUp ? "text-gain" : "text-loss"}>
                   {formatPlainPrice(legend[k])}
                 </span>
               </span>

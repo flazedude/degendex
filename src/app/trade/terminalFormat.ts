@@ -75,7 +75,7 @@ export function changeClass(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value) || value === 0) {
     return "text-muted-foreground";
   }
-  return value > 0 ? "text-primary" : "text-destructive";
+  return value > 0 ? "text-gain" : "text-loss";
 }
 
 const COMPACT = new Intl.NumberFormat("en-US", {

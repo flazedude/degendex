@@ -84,7 +84,7 @@ function BalanceRowView({ row }: { row: BalanceRow }) {
       <span
         className={cn(
           "truncate text-right font-mono tabular-nums",
-          change === null ? "text-muted-foreground" : change > 0 ? "text-primary" : change < 0 ? "text-destructive" : ""
+          change === null ? "text-muted-foreground" : change > 0 ? "text-gain" : change < 0 ? "text-loss" : ""
         )}
       >
         {formatPct(change)}

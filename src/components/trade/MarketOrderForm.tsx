@@ -170,8 +170,8 @@ export function MarketOrderForm({ base }: { base: TokenInfo }) {
                 "border py-1 text-[11px] font-bold uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 side === s
                   ? s === "buy"
-                    ? "border-primary/50 bg-primary/20 text-primary"
-                    : "border-destructive/50 bg-destructive/20 text-destructive"
+                    ? "border-gain/50 bg-gain/15 text-gain"
+                    : "border-loss/50 bg-loss/15 text-loss"
                   : "border-transparent bg-muted/30 text-muted-foreground enabled:hover:text-foreground"
               )}
             >

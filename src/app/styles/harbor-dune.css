@@ -1,0 +1,114 @@
+html[data-degn-style="harbor-dune"] {
+  --radius: 18px;
+  --background: #efeee5;
+  --foreground: #243b34;
+  --card: #fdfbf4;
+  --card-foreground: #243b34;
+  --primary: #28675a;
+  --secondary: #27574d;
+  --muted: #e4e9df;
+  --muted-foreground: #51655b;
+  --accent: #dcece1;
+  --accent-foreground: #234c43;
+  --destructive: #a13f49;
+  --border: #ccd6ca;
+  --input: #a6bbad;
+  --ring: #3d7867;
+  --chart-background: #fdfbf4;
+  --chart-text: #51655b;
+  --chart-grid: #dedfd3;
+  --chart-up: #246b53;
+  --chart-down: #a13f49;
+  --harbor-shadow: 0 1px 2px #5060540f, 0 8px 24px #5060540b;
+  --dune-heading: Georgia, Cambria, "Times New Roman", serif;
+}
+
+html[data-degn-style="harbor-dune"] .degn-header {
+  background: #f8f6ee;
+  border-color: #d4d7c9;
+}
+
+html[data-degn-style="harbor-dune"] .degn-nav {
+  min-height: 4rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-wordmark > :first-child,
+html[data-degn-style="harbor-dune"] :is(.degn-tape h2, .degn-swap-card h1, main > div > div > h1) {
+  font-family: var(--dune-heading);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+html[data-degn-style="harbor-dune"] .degn-wordmark {
+  color: #2f4c40;
+}
+
+html[data-degn-style="harbor-dune"] .degn-wordmark > :first-child {
+  font-size: 1.42rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-nav-links {
+  border-radius: 0.8rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-nav-link {
+  border-radius: 0.58rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-nav-link[aria-current="page"] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+html[data-degn-style="harbor-dune"] :is(.degn-terminal, .degn-workspace) {
+  gap: 1rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-market-bar {
+  background: #e7eee4;
+  box-shadow: none;
+}
+
+html[data-degn-style="harbor-dune"] .degn-market-bar > div:last-child > div,
+html[data-degn-style="harbor-dune"] .degn-market-bar button[aria-label="Open market list"] {
+  height: 4.15rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-market-bar p.font-mono.text-sm {
+  font-size: 1.25rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-market-rail input[aria-label="Search Solana tokens"] {
+  min-height: 1.85rem;
+  border-radius: 0.55rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-ticket > div {
+  padding: 1.1rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-tape h2 {
+  font-size: 1rem;
+}
+
+html[data-degn-style="harbor-dune"] .degn-swap-card {
+  max-width: 30rem;
+  padding: clamp(0.95rem, 3vw, 1.65rem);
+}
+
+html[data-degn-style="harbor-dune"] .degn-swap-card h1 {
+  font-size: 1.3rem;
+}
+
+@media (min-width: 64rem) {
+  html[data-degn-style="harbor-dune"] .degn-workspace {
+    grid-template:
+      "markets chart chart ticket" clamp(23rem, 50dvh, 34rem)
+      "markets account tape ticket" clamp(14rem, 24dvh, 18rem)
+      / minmax(9.5rem, 0.72fr) minmax(0, 1.3fr) minmax(0, 1.65fr) minmax(16.5rem, 1.3fr);
+  }
+
+  html[data-degn-style="harbor-dune"] .degn-ticket {
+    overflow-y: auto;
+  }
+}

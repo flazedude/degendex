@@ -69,9 +69,9 @@ export function TradeTerminal() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
-    <div className="flex flex-col lg:h-[calc(100dvh-2.5rem)] lg:overflow-hidden">
+    <div className="degn-terminal flex flex-col lg:h-[calc(100dvh-2.5rem)] lg:overflow-hidden">
       {/* Market bar (with the market list as a sheet below lg) */}
-      <div className="flex min-w-0 shrink-0">
+      <div className="degn-market-bar flex min-w-0 shrink-0">
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetTrigger asChild>
             <button
@@ -102,25 +102,25 @@ export function TradeTerminal() {
         `display: contents`, so `order-*` stacks: chart, order form, trades,
         bottom panel. From lg they are real columns.
       */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="hidden w-56 shrink-0 border-r border-border/50 lg:block">
+      <div className="degn-workspace flex min-h-0 flex-1 flex-col lg:flex-row">
+        <aside className="degn-market-rail hidden w-56 shrink-0 border-r border-border/50 lg:block">
           <MarketSelector selectedMint={mint} />
         </aside>
 
-        <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-col">
-          <section aria-label="Price chart" className="order-1 h-[55vh] min-h-[320px] lg:order-none lg:h-auto lg:min-h-0 lg:flex-1">
+        <div className="degn-chart-group contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-col">
+          <section aria-label="Price chart" className="degn-chart-panel order-1 h-[55vh] min-h-[320px] lg:order-none lg:h-auto lg:min-h-0 lg:flex-1">
             <PriceChart mint={mint} />
           </section>
-          <section id={ACCOUNT_PANEL_ID} aria-label="Balances and orders" className="order-4 min-h-64 border-t border-border/50 lg:order-none lg:h-60 lg:min-h-0 lg:shrink-0 lg:overflow-hidden">
+          <section id={ACCOUNT_PANEL_ID} aria-label="Balances and orders" className="degn-account order-4 min-h-64 border-t border-border/50 lg:order-none lg:h-60 lg:min-h-0 lg:shrink-0 lg:overflow-hidden">
             <BottomPanel mint={mint} />
           </section>
         </div>
 
-        <div className="contents lg:flex lg:w-80 lg:shrink-0 lg:flex-col lg:border-l lg:border-border/50">
-          <section aria-label="Recent trades" className="order-3 h-80 border-t border-border/50 lg:order-none lg:h-auto lg:min-h-40 lg:flex-1 lg:border-t-0 lg:overflow-hidden">
+        <div className="degn-order-group contents lg:flex lg:w-80 lg:shrink-0 lg:flex-col lg:border-l lg:border-border/50">
+          <section aria-label="Recent trades" className="degn-tape order-3 h-80 border-t border-border/50 lg:order-none lg:h-auto lg:min-h-40 lg:flex-1 lg:border-t-0 lg:overflow-hidden">
             <TradesPanel token={base} mint={mint} />
           </section>
-          <section aria-label="Place order" className="order-2 border-t border-border/50 lg:order-none lg:max-h-[75%] lg:shrink-0 lg:overflow-y-auto">
+          <section aria-label="Place order" className="degn-ticket order-2 border-t border-border/50 lg:order-none lg:max-h-[75%] lg:shrink-0 lg:overflow-y-auto">
             <TradePanelSlot base={base} notFound={notFound} failed={failed} />
           </section>
         </div>

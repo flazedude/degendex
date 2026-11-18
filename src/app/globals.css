@@ -1,4 +1,15 @@
 @import "tailwindcss";
+@import "./styles/preview.css";
+@import "./styles/graphite.css";
+@import "./styles/paper.css";
+@import "./styles/signal.css";
+@import "./styles/copper.css";
+@import "./styles/harbor.css";
+@import "./styles/harbor-air.css";
+@import "./styles/harbor-grid.css";
+@import "./styles/harbor-dune.css";
+@import "./styles/harbor-focus.css";
+@import "./styles/harbor-deep.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -18,6 +29,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-gain: var(--chart-up, var(--primary));
+  --color-loss: var(--chart-down, var(--destructive));
   --color-neon-green: #00ff88;
   --color-neon-purple: #bf00ff;
   --color-neon-pink: #ff3366;
@@ -26,8 +39,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-ui, var(--font-geist-sans));
+  --font-mono: var(--font-numbers, var(--font-geist-mono));
 }
 
 :root {

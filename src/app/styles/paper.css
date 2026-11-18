@@ -1,0 +1,213 @@
+html[data-degn-style="paper"] {
+  color-scheme: light;
+  --radius: 4px;
+  --background: #f4f0e7;
+  --foreground: #21233a;
+  --card: #fcf9f1;
+  --card-foreground: #21233a;
+  --primary: #383477;
+  --primary-foreground: #fffdf7;
+  --secondary: #403779;
+  --secondary-foreground: #ffffff;
+  --muted: #eae4d7;
+  --muted-foreground: #57536a;
+  --accent: #ebe5f1;
+  --accent-foreground: #332e64;
+  --destructive: #9e3a44;
+  --destructive-foreground: #ffffff;
+  --border: #c6bdad;
+  --input: #b9b0a0;
+  --ring: #5d5392;
+  --font-ui: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-numbers: var(--font-geist-mono), "SF Mono", ui-monospace, monospace;
+  --chart-background: #fcf9f1;
+  --chart-text: #57536a;
+  --chart-grid: #c9c0b4;
+  --chart-up: #25684e;
+  --chart-down: #9e3a44;
+  --style-masthead: Georgia, "Times New Roman", serif;
+  --color-neon-pink: #9e3a44;
+  --color-yellow-400: #765413;
+  --color-yellow-500: #765413;
+  --color-orange-500: #943d1a;
+}
+
+html[data-degn-style="paper"] .degn-header {
+  background: var(--card);
+  border-bottom: 3px double var(--border);
+}
+
+html[data-degn-style="paper"] :is(.degn-nav, .degn-terminal) {
+  width: 100%;
+  max-width: 96rem;
+  margin-inline: auto;
+}
+
+html[data-degn-style="paper"] .degn-nav {
+  min-height: 3.5rem;
+}
+
+html[data-degn-style="paper"] .degn-wordmark,
+html[data-degn-style="paper"] :is(h1, .degn-tape h2, [data-slot="card-title"]) {
+  font-family: var(--style-masthead);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+html[data-degn-style="paper"] .degn-wordmark > span:first-child {
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+html[data-degn-style="paper"] .degn-wordmark > span:last-child {
+  font-family: var(--font-ui);
+  font-size: 0.56rem;
+  letter-spacing: 0.15em;
+}
+
+html[data-degn-style="paper"] .degn-nav-links {
+  gap: 0.4rem;
+}
+
+html[data-degn-style="paper"] .degn-nav-link {
+  padding-inline: 0.55rem;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 650;
+}
+
+html[data-degn-style="paper"] .degn-nav-link[aria-current="page"] {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
+
+html[data-degn-style="paper"] .degn-terminal {
+  height: auto;
+  overflow: visible;
+}
+
+html[data-degn-style="paper"] .degn-market-bar {
+  background: var(--card);
+  border-bottom: 3px double var(--border);
+}
+
+html[data-degn-style="paper"] .degn-market-bar > div:last-child > div {
+  height: 3.7rem;
+  border-bottom: 0;
+  background: transparent;
+}
+
+html[data-degn-style="paper"] .degn-market-bar button[aria-label="Open market list"] {
+  height: 3.7rem;
+  border-bottom: 0;
+}
+
+html[data-degn-style="paper"] .degn-market-bar p.font-mono.text-sm {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+html[data-degn-style="paper"] :is(.degn-chart-panel, .degn-tape, .degn-ticket) {
+  background: var(--card);
+}
+
+html[data-degn-style="paper"] .degn-ticket > div {
+  padding: 0.9rem;
+}
+
+html[data-degn-style="paper"] .degn-tape h2 {
+  font-size: 1.01rem;
+}
+
+html[data-degn-style="paper"] :is(.degn-ticket, .degn-account) [role="tab"] {
+  padding-block: 0.48rem;
+  font-weight: 650;
+}
+
+html[data-degn-style="paper"] .degn-chart-panel [aria-label="Timeframe"] button {
+  padding-inline: 0.45rem;
+  padding-block: 0.25rem;
+}
+
+html[data-degn-style="paper"] .degn-ticket [role="tabpanel"] > div > .border,
+html[data-degn-style="paper"] .border-gradient > .border {
+  background: var(--background);
+}
+
+html[data-degn-style="paper"] .degn-swap-card {
+  max-width: 31rem;
+  padding: clamp(0.85rem, 3vw, 1.4rem);
+  border: 1px solid var(--border);
+  border-top: 3px double var(--primary);
+  background: var(--card);
+}
+
+html[data-degn-style="paper"] .degn-swap-card h1 {
+  font-size: 1.5rem;
+  text-transform: none;
+}
+
+html[data-degn-style="paper"] :is(.glow-green, .glow-green-sm, .glow-purple, [data-slot="card"]) {
+  box-shadow: none;
+}
+
+html[data-degn-style="paper"] .animated-gradient {
+  animation: none;
+  background: var(--card);
+}
+
+@media (min-width: 64rem) {
+  html[data-degn-style="paper"] .degn-terminal {
+    min-height: calc(100dvh - 3.5rem);
+    border-inline: 1px solid var(--border);
+  }
+
+  html[data-degn-style="paper"] .degn-workspace {
+    display: grid;
+    grid-template-columns: minmax(10rem, 0.8fr) minmax(0, 3fr) minmax(17rem, 1.2fr);
+    grid-template-rows: minmax(19rem, 1fr) 13.5rem;
+    grid-template-areas:
+      "markets chart ticket"
+      "markets account tape";
+  }
+
+  html[data-degn-style="paper"] :is(.degn-chart-group, .degn-order-group) {
+    display: contents;
+  }
+
+  html[data-degn-style="paper"] .degn-market-rail {
+    grid-area: markets;
+    width: auto;
+    min-height: 0;
+    background: var(--background);
+  }
+
+  html[data-degn-style="paper"] .degn-chart-panel {
+    grid-area: chart;
+    height: auto;
+    min-width: 0;
+  }
+
+  html[data-degn-style="paper"] .degn-ticket {
+    grid-area: ticket;
+    max-height: none;
+    min-width: 0;
+    overflow-y: auto;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  html[data-degn-style="paper"] .degn-account {
+    grid-area: account;
+    height: auto;
+    background: var(--background);
+  }
+
+  html[data-degn-style="paper"] .degn-tape {
+    grid-area: tape;
+    min-height: 0;
+    border-top: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+  }
+}
