@@ -1,61 +1,55 @@
 "use client";
 
+import { useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { cn } from "@/lib/utils";
 
-import type { Market } from "@/app/trade/page";
+const TABS = ["Balances", "Positions", "Open Orders", "Trade History", "Order History"] as const;
+type Tab = (typeof TABS)[number];
 
-interface RecentTradesProps {
-  market: Market;
-}
-
-const BASE_PRICES: Record<string, number> = {
-  SOL: 143.46, BTC: 67234.5, ETH: 3456.78, BONK: 0.00002134,
-  WIF: 2.34, JUP: 0.82, RAY: 0.62,
+// Account data is not wired up yet: every tab says so instead of showing zeros.
+const COMING_SOON: Record<Exclude<Tab, "Balances">, string> = {
+  Positions: "Positions coming soon",
+  "Open Orders": "Open orders coming soon",
+  "Trade History": "Trade history coming soon",
+  "Order History": "Order history coming soon",
 };
 
-// Bottom panel with tabs: Balances, Positions, Open Orders, Trade History, Order History
-export function RecentTrades({ market }: RecentTradesProps) {
-  const basePrice = BASE_PRICES[market.base] || 100;
-  const decimals = basePrice < 1 ? 8 : basePrice < 100 ? 4 : 2;
+// Bottom panel with account tabs
+export function RecentTrades() {
+  const [tab, setTab] = useState<Tab>("Balances");
+  const { connected } = useWallet();
+
+  const message =
+    tab === "Balances"
+      ? connected
+        ? "Balances coming soon"
+        : "Connect wallet to view balances"
+      : COMING_SOON[tab];
 
   return (
     <div className="flex flex-col h-full bg-card/30">
       {/* Tabs */}
-      <div className="flex gap-4 px-3 border-b border-border/30 shrink-0">
-        {["Balances", "Positions", "Open Orders", "Trade History", "Order History"].map((tab, i) => (
+      <div className="flex gap-4 px-3 border-b border-border/30 shrink-0 overflow-x-auto">
+        {TABS.map((t) => (
           <button
-            key={tab}
+            key={t}
+            onClick={() => setTab(t)}
             className={cn(
-              "py-1.5 text-[11px] font-medium transition-colors border-b",
-              i === 0
+              "py-1.5 text-[11px] font-medium transition-colors border-b whitespace-nowrap",
+              tab === t
                 ? "text-foreground border-primary"
                 : "text-muted-foreground border-transparent hover:text-foreground"
             )}
           >
-            {tab}
+            {t}
           </button>
         ))}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        <table className="w-full text-[11px]">
-          <thead>
-            <tr className="text-muted-foreground">
-              <th className="text-left font-normal px-3 py-1">Asset</th>
-              <th className="text-right font-normal px-3 py-1">Balance</th>
-              <th className="text-right font-normal px-3 py-1">Value</th>
-              <th className="text-right font-normal px-3 py-1">Price</th>
-            </tr>
-          </thead>
-          <tbody className="font-mono">
-            <tr className="text-muted-foreground">
-              <td colSpan={4} className="text-center py-6 text-xs">
-                Connect wallet to view balances
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div className="flex flex-1 items-center justify-center px-3">
+        <p className="text-xs text-muted-foreground">{message}</p>
       </div>
     </div>
   );

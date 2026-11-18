@@ -8,8 +8,8 @@ export default function ExplorePage() {
           <span className="text-gradient">Explore</span> Tokens
         </h1>
         <p className="text-xs text-muted-foreground">
-          Discover trending tokens on Solana. Sorted by volume, market cap, or
-          price change.
+          Top Solana pairs from DexScreener. Sort by 24h volume, liquidity, or
+          24h price change.
         </p>
       </div>
       <TokenTable />

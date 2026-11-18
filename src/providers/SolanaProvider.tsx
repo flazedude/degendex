@@ -6,7 +6,6 @@ import {
   WalletProvider,
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import { PhantomWalletAdapter, SolflareWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { HELIUS_RPC_URL } from "@/lib/constants";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
@@ -14,10 +13,9 @@ import "@solana/wallet-adapter-react-ui/styles.css";
 export function SolanaProvider({ children }: { children: React.ReactNode }) {
   const endpoint = useMemo(() => HELIUS_RPC_URL, []);
 
-  const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
-    []
-  );
+  // Phantom, Solflare, Backpack and other modern wallets register themselves
+  // through the Wallet Standard, so no adapters need to be bundled here.
+  const wallets = useMemo(() => [], []);
 
   return (
     <ConnectionProvider endpoint={endpoint}>

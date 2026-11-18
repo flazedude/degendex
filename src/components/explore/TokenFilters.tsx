@@ -13,7 +13,7 @@ interface TokenFiltersProps {
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: "Volume", value: "volume" },
   { label: "Liquidity", value: "liquidity" },
-  { label: "Trending", value: "priceChange" },
+  { label: "24h Gainers", value: "priceChange" },
 ];
 
 export function TokenFilters({ sortBy, onSortChange }: TokenFiltersProps) {

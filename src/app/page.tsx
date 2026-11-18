@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Zap, Shield, BarChart3 } from "lucide-react";
+import { ArrowRight, Zap, Flame, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -13,8 +13,8 @@ export default function Home() {
             <span className="text-foreground">DEX</span>
           </h1>
           <p className="mx-auto max-w-xl text-lg text-muted-foreground sm:text-xl">
-            The degenerate&apos;s decentralized exchange on Solana. Swap, provide
-            liquidity, and trade with the speed of light.
+            The degenerate&apos;s exchange on Solana. Best-price swaps, fresh
+            meme pairs, Raydium pools and live charts in one terminal.
           </p>
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
             <Link href="/swap">
@@ -46,30 +46,31 @@ export default function Home() {
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
               <Zap className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold">Lightning Fast</h3>
+            <h3 className="text-lg font-semibold">Best-Price Swaps</h3>
             <p className="text-sm text-muted-foreground">
-              Powered by Solana. Sub-second finality. Fees measured in fractions
-              of a cent.
+              Swaps run through Jupiter&apos;s meta-aggregator: every router
+              competes for your order, including RFQ market makers, and the best
+              quote wins.
             </p>
           </div>
           <div className="space-y-3 rounded-xl border border-border/50 bg-card/50 p-6">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-secondary/10">
-              <Shield className="h-6 w-6 text-secondary" />
+              <Flame className="h-6 w-6 text-secondary" />
             </div>
-            <h3 className="text-lg font-semibold">Best Prices</h3>
+            <h3 className="text-lg font-semibold">Meme Discovery</h3>
             <p className="text-sm text-muted-foreground">
-              Jupiter aggregation finds the best route across all Solana DEXes.
-              No middleman.
+              Fresh Pump.fun and trending Solana pairs, refreshed live with
+              DexScreener charts and a direct link to swap.
             </p>
           </div>
           <div className="space-y-3 rounded-xl border border-border/50 bg-card/50 p-6">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-neon-pink/10">
               <BarChart3 className="h-6 w-6 text-neon-pink" />
             </div>
-            <h3 className="text-lg font-semibold">Full Featured</h3>
+            <h3 className="text-lg font-semibold">Pools &amp; Charts</h3>
             <p className="text-sm text-muted-foreground">
-              Swaps, liquidity pools, limit orders, charts, and portfolio
-              tracking. All in one place.
+              Explore Raydium pools by TVL, volume and APR, and follow markets
+              on TradingView charts in the Trade terminal.
             </p>
           </div>
         </div>

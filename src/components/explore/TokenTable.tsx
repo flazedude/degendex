@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ArrowUpRight, ArrowDownRight, ExternalLink } from "lucide-react";
 import {
   Table,
@@ -17,6 +18,7 @@ import { TokenFilters } from "./TokenFilters";
 import { formatNumber } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { getDexScreenerChartUrl } from "@/lib/api/dexscreener";
+import { pairSwapHref } from "./pairSwapHref";
 
 export function TokenTable() {
   const [sortBy, setSortBy] = useState<"volume" | "liquidity" | "priceChange">("volume");
@@ -44,7 +46,7 @@ export function TokenTable() {
               <TableHead className="text-right text-muted-foreground hidden sm:table-cell">Vol 24h</TableHead>
               <TableHead className="text-right text-muted-foreground hidden md:table-cell">MCap</TableHead>
               <TableHead className="text-right text-muted-foreground hidden lg:table-cell">Liquidity</TableHead>
-              <TableHead className="w-10" />
+              <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -58,13 +60,14 @@ export function TokenTable() {
                     <TableCell className="hidden sm:table-cell"><Skeleton className="ml-auto h-4 w-14" /></TableCell>
                     <TableCell className="hidden md:table-cell"><Skeleton className="ml-auto h-4 w-14" /></TableCell>
                     <TableCell className="hidden lg:table-cell"><Skeleton className="ml-auto h-4 w-14" /></TableCell>
-                    <TableCell><Skeleton className="ml-auto h-6 w-6" /></TableCell>
+                    <TableCell><Skeleton className="ml-auto h-6 w-16" /></TableCell>
                   </TableRow>
                 ))
               : pairs.map((pair, i) => {
                   const priceChange = pair.priceChange?.h24 ?? 0;
                   const isPositive = priceChange >= 0;
                   const price = pair.priceUsd ? parseFloat(pair.priceUsd) : 0;
+                  const swapHref = pairSwapHref(pair);
                   return (
                     <TableRow
                       key={pair.pairAddress}
@@ -126,19 +129,33 @@ export function TokenTable() {
                         ${formatNumber(pair.liquidity?.usd ?? 0)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <a
-                          href={getDexScreenerChartUrl(pair.pairAddress)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
+                        <div className="flex items-center justify-end gap-1">
+                          {swapHref && (
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[11px] border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
+                            >
+                              <Link href={swapHref}>Swap</Link>
+                            </Button>
+                          )}
                           <Button
+                            asChild
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
                           >
-                            <ExternalLink className="h-3.5 w-3.5" />
+                            <a
+                              href={getDexScreenerChartUrl(pair.pairAddress)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`View ${pair.baseToken.symbol} on DexScreener`}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
                           </Button>
-                        </a>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );

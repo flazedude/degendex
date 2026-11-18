@@ -1,10 +1,12 @@
 "use client";
 
-import { Wallet, ExternalLink } from "lucide-react";
+import { Wallet, ExternalLink, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+
+const RAYDIUM_PORTFOLIO_URL = "https://raydium.io/portfolio/";
 
 export function MyPositions() {
   const { connected } = useWallet();
@@ -33,7 +35,7 @@ export function MyPositions() {
     );
   }
 
-  // TODO: Fetch actual positions via Raydium SDK / Helius DAS API
+  // Positions are not read from chain yet, so don't claim the wallet has none.
   return (
     <Card className="border-border/50 bg-card/50">
       <CardHeader>
@@ -41,23 +43,21 @@ export function MyPositions() {
       </CardHeader>
       <CardContent>
         <div className="flex flex-col items-center justify-center py-12 gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-            <Wallet className="h-6 w-6 text-muted-foreground" />
+          <div className="flex h-12 w-12 items-center justify-center border border-dashed border-border bg-muted/40">
+            <Clock className="h-6 w-6 text-muted-foreground" />
           </div>
-          <p className="text-sm text-muted-foreground text-center">
-            No liquidity positions found.<br />
-            Add liquidity to a pool to start earning fees.
-          </p>
-          <a
-            href="https://raydium.io/liquidity/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button variant="outline" size="sm" className="text-xs gap-1.5">
-              Manage on Raydium
+          <div className="text-center">
+            <p className="text-sm font-medium">Position tracking is coming soon</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              We don&apos;t read your positions yet. Raydium&apos;s portfolio page shows your pools and earned fees.
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm" className="text-xs gap-1.5">
+            <a href={RAYDIUM_PORTFOLIO_URL} target="_blank" rel="noopener noreferrer">
+              View on Raydium Portfolio
               <ExternalLink className="h-3 w-3" />
-            </Button>
-          </a>
+            </a>
+          </Button>
         </div>
       </CardContent>
     </Card>
