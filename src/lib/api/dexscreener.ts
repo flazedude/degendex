@@ -56,9 +56,11 @@ export interface DexScreenerTokenProfile {
 
 export async function searchTokenPairs(query: string): Promise<DexScreenerPair[]> {
   const res = await fetch(`${DEXSCREENER_API}/latest/dex/search?q=${encodeURIComponent(query)}`);
-  if (!res.ok) throw new Error(`DexScreener search error: ${res.statusText}`);
-  const data = await res.json();
-  return (data.pairs || []).filter((p: DexScreenerPair) => p.chainId === "solana");
+  if (!res.ok) throw new Error(`DexScreener search failed (${res.status})`);
+  const data: { pairs?: unknown } | null = await res.json();
+  if (data?.pairs === null) return [];
+  if (!Array.isArray(data?.pairs)) throw new Error("Invalid DexScreener search response");
+  return data.pairs.filter((pair: DexScreenerPair) => pair.chainId === "solana");
 }
 
 export async function getTokenPairs(tokenAddress: string): Promise<DexScreenerPair[]> {
@@ -82,41 +84,37 @@ export async function getLatestBoostedTokens(): Promise<DexScreenerTokenProfile[
   return (data || []).filter((p: DexScreenerTokenProfile) => p.chainId === "solana");
 }
 
+async function getActivePairs(
+  queries: string[],
+  keyFor: (pair: DexScreenerPair) => string
+): Promise<DexScreenerPair[]> {
+  const results = await Promise.allSettled(queries.map(searchTokenPairs));
+  if (results.every((result) => result.status === "rejected")) {
+    throw new Error("All DexScreener searches failed", { cause: results[0]?.reason });
+  }
+
+  const pairs = new Map<string, DexScreenerPair>();
+  for (const result of results) {
+    if (result.status === "rejected") continue;
+
+    for (const pair of result.value) {
+      const hasTradingVolume = pair.volume?.h24 > 0;
+      if (!pair.priceUsd || !hasTradingVolume) continue;
+
+      const key = keyFor(pair);
+      if (!pairs.has(key)) pairs.set(key, pair);
+    }
+  }
+  return [...pairs.values()];
+}
+
 /**
  * Fetch pump.fun memecoins via DexScreener search.
  * Searches multiple queries to get a larger set of meme tokens.
  */
 export async function getPumpFunPairs(): Promise<DexScreenerPair[]> {
   const queries = ["pump.fun", "meme solana", "degen solana", "sol meme", "bonk", "wif", "popcat"];
-
-  const results = await Promise.allSettled(
-    queries.map((q) =>
-      fetch(`${DEXSCREENER_API}/latest/dex/search?q=${encodeURIComponent(q)}`)
-        .then((r) => r.json())
-        .then((d) =>
-          ((d.pairs || []) as DexScreenerPair[]).filter(
-            (p: DexScreenerPair) =>
-              p.chainId === "solana" &&
-              p.priceUsd &&
-              p.volume?.h24 > 0
-          )
-        )
-    )
-  );
-
-  const allPairs: DexScreenerPair[] = [];
-  const seen = new Set<string>();
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      for (const pair of result.value) {
-        if (!seen.has(pair.pairAddress)) {
-          seen.add(pair.pairAddress);
-          allPairs.push(pair);
-        }
-      }
-    }
-  }
+  const allPairs = await getActivePairs(queries, (pair) => pair.pairAddress);
 
   // Sort by 24h volume descending, return up to 200
   return allPairs
@@ -142,32 +140,5 @@ export function getDexScreenerChartUrl(pairAddress: string): string {
  */
 export async function getTopSolanaPairs(): Promise<DexScreenerPair[]> {
   const queries = ["SOL", "USDC", "BONK", "WIF", "JUP", "RAY", "PYTH", "JTO", "RNDR", "HNT"];
-  const results = await Promise.allSettled(
-    queries.map((q) =>
-      fetch(`${DEXSCREENER_API}/latest/dex/search?q=${q}`)
-        .then((r) => r.json())
-        .then((d) =>
-          ((d.pairs || []) as DexScreenerPair[]).filter(
-            (p) => p.chainId === "solana" && p.priceUsd && p.volume?.h24 > 0
-          )
-        )
-    )
-  );
-
-  const allPairs: DexScreenerPair[] = [];
-  const seen = new Set<string>();
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      for (const pair of result.value) {
-        const key = pair.baseToken.address;
-        if (!seen.has(key)) {
-          seen.add(key);
-          allPairs.push(pair);
-        }
-      }
-    }
-  }
-
-  return allPairs;
+  return getActivePairs(queries, (pair) => pair.baseToken.address);
 }
