@@ -17,7 +17,7 @@ const record = (over: Partial<PendingSwap> = {}): PendingSwap => ({
   ...over,
 });
 
-afterEach(() => usePendingSwapStore.setState({ pending: null, inFlight: {} }));
+afterEach(() => usePendingSwapStore.setState({ pending: {}, inFlight: {} }));
 
 describe("usePendingSwapStore", () => {
   it("blocks only the wallet that swapped, until the record lapses", () => {
@@ -27,15 +27,29 @@ describe("usePendingSwapStore", () => {
     expect(isSwapBlocked("A", 1_000)).toBe(false);
   });
 
+  it("keeps unknown outcomes independent across wallets", () => {
+    const first = record();
+    const second = record({ wallet: "B", until: 2_000 });
+    const { setPending, clearPending } = usePendingSwapStore.getState();
+    setPending(first);
+    setPending(second);
+    expect(isSwapBlocked("A", 999)).toBe(true);
+    expect(isSwapBlocked("B", 999)).toBe(true);
+    clearPending(first);
+    expect(isSwapBlocked("A", 999)).toBe(false);
+    expect(isSwapBlocked("B", 999)).toBe(true);
+  });
+
   it("only clears the record it was given", () => {
     const first = record();
     const second = record({ until: 2_000 });
-    usePendingSwapStore.getState().setPending(first);
-    usePendingSwapStore.getState().setPending(second);
-    usePendingSwapStore.getState().clearPending(first);
-    expect(usePendingSwapStore.getState().pending).toBe(second);
-    usePendingSwapStore.getState().clearPending();
-    expect(usePendingSwapStore.getState().pending).toBeNull();
+    const { setPending, clearPending } = usePendingSwapStore.getState();
+    setPending(first);
+    setPending(second);
+    clearPending(first);
+    expect(usePendingSwapStore.getState().pending.A).toBe(second);
+    clearPending(second);
+    expect(usePendingSwapStore.getState().pending).toEqual({});
   });
 });
 
@@ -79,6 +93,6 @@ describe("swap in-flight lock", () => {
   it("is independent of the unknown-outcome block", () => {
     beginSwap(swap(), 1_000);
     expect(isSwapBlocked("A", 1_001)).toBe(false);
-    expect(usePendingSwapStore.getState().pending).toBeNull();
+    expect(usePendingSwapStore.getState().pending).toEqual({});
   });
 });

@@ -36,6 +36,12 @@ export function isValidPubkey(value: unknown): value is string {
   return base58DecodedLength(value) === 32;
 }
 
+export function isValidSolanaSignature(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(value) &&
+    base58DecodedLength(value) === 64;
+}
+
 /**
  * Parses a raw token amount (smallest units). Accepts only plain digit strings
  * (no sign, no decimals, no exponent) in 1..u64::MAX. Returns the normalized
