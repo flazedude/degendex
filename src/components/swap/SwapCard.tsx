@@ -173,7 +173,7 @@ export function SwapCard() {
   const { slippageText, minReceivedUnknown } = slippageDisplay(order, slippage);
 
   return (
-    <div className="w-full max-w-md space-y-2 border border-border/60 bg-card/80 p-3 backdrop-blur-sm border-gradient">
+    <div className="degn-swap-card w-full max-w-md space-y-2 border border-border/60 bg-card/80 p-3 backdrop-blur-sm border-gradient">
       <div className="flex items-center justify-between">
         <h1 className="text-sm font-semibold uppercase tracking-wide">Swap</h1>
         <div className="flex items-center gap-1">

@@ -1,0 +1,146 @@
+html[data-degn-style="copper"] {
+  color-scheme: dark;
+  --radius: 8px;
+  --background: #1a1512;
+  --foreground: #eee2d3;
+  --card: #241c17;
+  --card-foreground: #eee2d3;
+  --primary: #b5cea5;
+  --primary-foreground: #192114;
+  --secondary: #e4aa82;
+  --secondary-foreground: #31190e;
+  --muted: #2d231d;
+  --muted-foreground: #b9a79a;
+  --accent: #392a21;
+  --accent-foreground: #f5e7d9;
+  --destructive: #e8948c;
+  --destructive-foreground: #2f0f0d;
+  --border: #4e3b2f;
+  --input: #5a4537;
+  --ring: #e4aa82;
+  --font-ui: var(--font-geist-sans), system-ui, sans-serif;
+  --font-numbers: var(--font-geist-mono), ui-monospace, monospace;
+  --chart-background: #211a16;
+  --chart-text: #b9a79a;
+  --chart-grid: #47372d;
+  --chart-up: #b5cea5;
+  --chart-down: #e8948c;
+  --copper-serif: Georgia, Cambria, "Times New Roman", serif;
+}
+
+[data-degn-style="copper"] .degn-header {
+  background: #251c16;
+  border-bottom-color: #6b4c38;
+}
+
+[data-degn-style="copper"] .degn-nav {
+  max-width: 102rem;
+  min-height: 3.25rem;
+  margin-inline: auto;
+  padding-inline: clamp(0.75rem, 2vw, 2rem);
+}
+
+[data-degn-style="copper"] .degn-wordmark,
+[data-degn-style="copper"] :is(h1, [data-slot="card-title"]) {
+  font-family: var(--copper-serif);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+[data-degn-style="copper"] .degn-wordmark {
+  color: #f1c4a2;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+[data-degn-style="copper"] .degn-nav-link {
+  border-bottom: 1px solid transparent;
+  padding-inline: 0.65rem;
+  font-size: 0.75rem;
+}
+
+[data-degn-style="copper"] .degn-nav-link[aria-current="page"] {
+  color: #f1c4a2;
+  border-bottom-color: #e4aa82;
+  background: transparent;
+}
+
+[data-degn-style="copper"] .degn-terminal {
+  width: min(100%, 102rem);
+  margin-inline: auto;
+  padding: clamp(0.75rem, 1.8vw, 1.5rem);
+}
+
+[data-degn-style="copper"] .degn-market-bar {
+  overflow: hidden;
+  border: 1px solid #5b4232;
+  border-radius: 0.5rem;
+  background: #231a15;
+}
+
+[data-degn-style="copper"] .degn-workspace {
+  gap: clamp(0.625rem, 1.25vw, 1rem);
+  margin-top: clamp(0.625rem, 1.25vw, 1rem);
+}
+
+[data-degn-style="copper"] :is(.degn-market-rail, .degn-chart-panel, .degn-account, .degn-tape, .degn-ticket) {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+}
+
+[data-degn-style="copper"] .degn-chart-panel {
+  background: var(--chart-background);
+}
+
+[data-degn-style="copper"] .degn-ticket {
+  border-color: #6b4c38;
+  background: #271d16;
+}
+
+[data-degn-style="copper"] .degn-ticket > div {
+  padding: clamp(0.75rem, 1.5vw, 1.125rem);
+}
+
+[data-degn-style="copper"] .degn-ticket [role="tab"] {
+  padding: 0.5rem 0.625rem;
+  font-size: 0.75rem;
+}
+
+[data-degn-style="copper"] .degn-ticket [role="tab"][aria-selected="true"] {
+  color: #f1c4a2;
+  border-bottom-color: #e4aa82;
+}
+
+[data-degn-style="copper"] .degn-tape h2 {
+  font-family: var(--copper-serif);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+@media (min-width: 64rem) {
+  [data-degn-style="copper"] .degn-terminal {
+    height: auto;
+    overflow: visible;
+  }
+
+  [data-degn-style="copper"] .degn-workspace {
+    display: grid;
+    grid-template:
+      "chart chart ticket" minmax(30rem, 58vh)
+      "rail account tape" minmax(17rem, 34vh)
+      / minmax(11rem, 0.94fr) minmax(0, 2.3fr) minmax(17rem, 1.25fr);
+  }
+
+  [data-degn-style="copper"] :is(.degn-chart-group, .degn-order-group) {
+    display: contents;
+  }
+
+  [data-degn-style="copper"] .degn-chart-panel { grid-area: chart; }
+  [data-degn-style="copper"] .degn-account { grid-area: account; height: auto; }
+  [data-degn-style="copper"] .degn-market-rail { grid-area: rail; width: auto; }
+  [data-degn-style="copper"] .degn-tape { grid-area: tape; height: auto; }
+  [data-degn-style="copper"] .degn-ticket { grid-area: ticket; max-height: none; overflow-y: auto; }
+}

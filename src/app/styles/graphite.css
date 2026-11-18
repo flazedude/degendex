@@ -1,0 +1,93 @@
+html[data-degn-style="graphite"] {
+  color-scheme: dark;
+  --radius: 4px;
+  --background: #10151c;
+  --foreground: #edf2f8;
+  --card: #161e28;
+  --card-foreground: #edf2f8;
+  --primary: #a9c8ff;
+  --primary-foreground: #111e33;
+  --secondary: #dbe7f6;
+  --secondary-foreground: #172331;
+  --muted: #222c39;
+  --muted-foreground: #a2b1c5;
+  --accent: #27374c;
+  --accent-foreground: #edf2f8;
+  --destructive: #fc929b;
+  --destructive-foreground: #311018;
+  --border: #344254;
+  --input: #44556c;
+  --ring: #a9c8ff;
+  --chart-background: #121a24;
+  --chart-text: #acbacb;
+  --chart-grid: #304157;
+  --chart-up: #66d6a8;
+  --chart-down: #f0838f;
+  --hero-background: linear-gradient(165deg, #10151c 55%, #172536);
+}
+
+[data-degn-style="graphite"] .degn-header {
+  background: #121a25;
+  border-bottom-color: var(--border);
+}
+
+[data-degn-style="graphite"] .degn-wordmark {
+  color: #e9f0fa;
+  letter-spacing: -0.05em;
+}
+
+[data-degn-style="graphite"] .degn-wordmark > :last-child {
+  letter-spacing: 0.08em;
+}
+
+[data-degn-style="graphite"] .degn-nav-link {
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding-block: 0.625rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+[data-degn-style="graphite"] .degn-nav-link[aria-current="page"] {
+  border-bottom-color: var(--primary);
+  background: transparent;
+}
+
+[data-degn-style="graphite"] .degn-market-bar,
+[data-degn-style="graphite"] .degn-market-bar > :last-child > div {
+  background: #1c2837;
+}
+
+[data-degn-style="graphite"] .degn-market-bar > :last-child > div {
+  border-bottom-color: var(--border);
+}
+
+[data-degn-style="graphite"] .degn-market-rail,
+[data-degn-style="graphite"] .degn-ticket {
+  background-color: var(--card);
+}
+
+[data-degn-style="graphite"] .degn-chart-panel {
+  background-color: var(--chart-background);
+}
+
+[data-degn-style="graphite"] :is(.degn-account, .degn-tape) {
+  background-color: #151d27;
+}
+
+[data-degn-style="graphite"] .degn-ticket [role="tab"][aria-selected="true"] {
+  background: var(--accent);
+}
+
+@media (min-width: 64rem) {
+  [data-degn-style="graphite"] .degn-market-rail {
+    width: clamp(11rem, 16vw, 15rem);
+  }
+
+  [data-degn-style="graphite"] .degn-order-group {
+    width: clamp(17rem, 24vw, 23rem);
+  }
+
+  [data-degn-style="graphite"] .degn-account {
+    height: clamp(9.5rem, 23vh, 14rem);
+  }
+}
