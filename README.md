@@ -36,7 +36,7 @@ pnpm dev                     # http://localhost:3000
 | `NEXT_PUBLIC_HELIUS_RPC_URL` | browser | Solana RPC for wallet balances. Use a provider key restricted to your domains; the public endpoint rate-limits hard. |
 | `NEXT_PUBLIC_DEGN_MINT` | browser | Optional DEGN token mint, added to the swap token list. |
 | `CG_DEMO_API_KEY` | server | Free CoinGecko Demo key ([coingecko.com/en/api](https://www.coingecko.com/en/api)) for terminal candles and trades (100 calls/min). Without it the app uses keyless GeckoTerminal (~10 calls/min per server IP), which is enough for local dev only. |
-| `NEXT_PUBLIC_DISABLE_TRIGGER` | server + browser | Kill switch for limit orders and DCA. `1` (or `new`) pauses new orders but keeps Open orders, Cancel and Withdraw working; `all` switches everything off and points users to jup.ag to manage existing orders. The browser reads it at build time, so a change needs a redeploy. |
+| `NEXT_PUBLIC_DISABLE_TRIGGER` | server + browser | New limit orders and DCA are paused by default. `new` (or `1`) keeps Open orders, Cancel and Withdraw available. `0` (or `false`) enables new orders. `all` points users to jup.ag to manage existing orders. Set the same value for the build and runtime and redeploy after changes. |
 
 ### Scripts
 
@@ -111,9 +111,11 @@ Users see a one-time consent screen that says this before their first order.
 - DEGN DEX takes no fee on these orders (the Trigger API has no integrator fee).
   Jupiter charges its own fee when an order fills (about 0.03-0.1% plus up to
   0.5% routing, per Jupiter's docs).
-- The API is in beta. Do one end-to-end test with a small amount before relying
-  on it. If something breaks, set `NEXT_PUBLIC_DISABLE_TRIGGER=1` and redeploy:
-  new orders pause, but users can still see, cancel and withdraw what they have.
+- The API is in beta. Enable new orders in a funded preview with
+  `NEXT_PUBLIC_DISABLE_TRIGGER=0`. Verify placement, fills, cancellation, and
+  withdrawal after expiry before enabling orders in production. To pause new
+  orders while keeping Cancel and Withdraw available, set
+  `NEXT_PUBLIC_DISABLE_TRIGGER=new` and redeploy.
 - Sign-in, token refresh, vault registration, order history and deposit crafting
   were tested live through the proxy with a throwaway wallet, and the deposit
   safety check is tested against real Jupiter deposit transactions

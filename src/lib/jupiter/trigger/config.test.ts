@@ -11,13 +11,14 @@ import {
 
 describe("kill switch", () => {
   it("parses NEXT_PUBLIC_DISABLE_TRIGGER", () => {
-    for (const v of [undefined, null, "", "0", "false", " FALSE "]) expect(parseTriggerMode(v)).toBe("on");
-    for (const v of ["1", "new", "NEW", "true", "yes"]) expect(parseTriggerMode(v)).toBe("new-orders-off");
+    for (const v of ["0", "false", " FALSE "]) expect(parseTriggerMode(v)).toBe("on");
+    for (const v of [undefined, null, "", " ", "1", "new", "NEW", "true", "yes"]) expect(parseTriggerMode(v)).toBe("new-orders-off");
     for (const v of ["all", " ALL "]) expect(parseTriggerMode(v)).toBe("off");
   });
 
   it("reads the flag from the given env at call time", () => {
-    expect(triggerModeFromEnv({})).toBe("on");
+    expect(triggerModeFromEnv({})).toBe("new-orders-off");
+    expect(triggerModeFromEnv({ NEXT_PUBLIC_DISABLE_TRIGGER: "0" })).toBe("on");
     expect(triggerModeFromEnv({ NEXT_PUBLIC_DISABLE_TRIGGER: "new" })).toBe("new-orders-off");
     expect(triggerModeFromEnv({ NEXT_PUBLIC_DISABLE_TRIGGER: "all" })).toBe("off");
   });

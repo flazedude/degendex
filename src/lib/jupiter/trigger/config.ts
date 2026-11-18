@@ -1,11 +1,11 @@
 // Kill switch for Jupiter Trigger v2 (limit orders + DCA), from
 // NEXT_PUBLIC_DISABLE_TRIGGER:
 //
-//   unset / "" / "0" / "false"  -> "on": everything works.
+//   "0" / "false"              -> "on": everything works.
 //   "all"                      -> "off": the proxy answers 404 for every route
 //                                 and the UI points users to jup.ag, which
 //                                 manages the same per-wallet vault.
-//   "1" / "new" / anything else -> "new-orders-off": no new orders (craft,
+//   unset / "" / "1" / "new"    -> "new-orders-off": no new orders (craft,
 //                                 create, edit), but sign-in, the order lists,
 //                                 cancel and withdraw keep working so funds
 //                                 already in the vault can always come back.
@@ -20,9 +20,9 @@ export const TRIGGER_FLAG_NAME = "NEXT_PUBLIC_DISABLE_TRIGGER";
 
 export function parseTriggerMode(raw: string | undefined | null): TriggerMode {
   const v = (raw ?? "").trim().toLowerCase();
-  if (v === "" || v === "0" || v === "false") return "on";
+  if (v === "0" || v === "false") return "on";
   if (v === "all") return "off";
-  // "1", "new" and any unrecognised value fail safe: stop new deposits only.
+  // Missing and unrecognised values pause new deposits while keeping management available.
   return "new-orders-off";
 }
 

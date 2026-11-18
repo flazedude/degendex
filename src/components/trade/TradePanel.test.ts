@@ -20,7 +20,7 @@ vi.mock("./trigger", () => ({
 
 const BASE: TokenInfo = { mint: "So11111111111111111111111111111111111111112", symbol: "SOL", decimals: 9 };
 
-async function render(flag: string): Promise<string> {
+async function render(flag: string | undefined): Promise<string> {
   vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", flag);
   const { TradePanel } = await import("./TradePanel");
   return renderToStaticMarkup(createElement(TradePanel, { base: BASE }));
@@ -44,15 +44,15 @@ afterEach(() => {
 
 describe("TradePanel order tabs and the Trigger kill switch", () => {
   it("on: every tab is enabled and there is no kill-switch note", async () => {
-    const html = await render("");
+    const html = await render("0");
     for (const id of ["market", "limit", "dca"]) expect(tab(html, id)).not.toContain('disabled=""');
     expect(html).not.toContain("turned off");
     expect(html).not.toContain("jup.ag");
     expect(html).toContain("market-form");
   });
 
-  it("new-orders-off: Limit / DCA stay enabled (the forms show the paused note)", async () => {
-    const html = await render("1");
+  it("default: Limit and DCA tabs are available while new orders are paused", async () => {
+    const html = await render(undefined);
     const { TRIGGER_MODE } = await import("@/lib/jupiter/trigger/config");
     expect(TRIGGER_MODE).toBe("new-orders-off");
     for (const id of ["market", "limit", "dca"]) expect(tab(html, id)).not.toContain('disabled=""');
@@ -81,7 +81,7 @@ describe("TradePanel order tabs and the Trigger kill switch", () => {
 
   it("a running market swap locks the Limit / DCA tabs", async () => {
     swap.inFlight = { id: "swap-1" };
-    const html = await render("");
+    const html = await render("0");
     expect(tab(html, "market")).not.toContain('disabled=""');
     for (const id of ["limit", "dca"]) {
       expect(tab(html, id)).toContain('disabled=""');

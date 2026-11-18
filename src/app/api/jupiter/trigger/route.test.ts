@@ -15,7 +15,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("JUPITER_API_KEY", "test-key");
-  vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "");
+  vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "0");
 });
 
 afterEach(() => {
@@ -80,8 +80,8 @@ describe("trigger proxy: routing", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  for (const flag of ["1", "new"]) {
-    it(`with the kill switch at "${flag}" blocks only new orders`, async () => {
+  for (const flag of [undefined, "1", "new"]) {
+    it(`with the kill switch ${flag ?? "unset"} blocks only new orders`, async () => {
       vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", flag);
       const { GET, POST, PATCH } = await load();
       const auth = { authorization: `Bearer ${JWT}` };
@@ -130,7 +130,7 @@ describe("trigger proxy: routing", () => {
     fetchMock.mockImplementation(async () => json({ ok: true }));
     vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "new");
     expect((await POST(req("POST", "deposit/craft", { headers: auth, body: {} }), ctx("deposit/craft"))).status).toBe(404);
-    vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "");
+    vi.stubEnv("NEXT_PUBLIC_DISABLE_TRIGGER", "0");
     const res = await POST(req("POST", "deposit/craft", { headers: auth, body: {} }), ctx("deposit/craft"));
     // Reaches validation now (400 for the empty body) instead of the kill switch.
     expect(res.status).toBe(400);
