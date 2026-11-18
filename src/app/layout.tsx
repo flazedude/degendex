@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { DEFAULT_INTERFACE_STYLE } from "@/lib/constants";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { Navbar } from "@/components/layout/Navbar";
@@ -37,7 +38,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      data-degn-style="harbor"
+      data-degn-style={DEFAULT_INTERFACE_STYLE}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">

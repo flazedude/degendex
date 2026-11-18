@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useSyncExternalStore } from "react";
 import { Palette } from "lucide-react";
+import { DEFAULT_INTERFACE_STYLE } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,9 +15,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const HARBOR_STYLES = [
+  { id: "harbor-grid", label: "Harbor Grid", swatches: ["#eef3f9", "#c5d7e9", "#1b578f"] },
   { id: "harbor", label: "Harbor", swatches: ["#eaf4f5", "#87bfc3", "#146e71"] },
   { id: "harbor-air", label: "Harbor Air", swatches: ["#edf8f4", "#b6ddd2", "#087166"] },
-  { id: "harbor-grid", label: "Harbor Grid", swatches: ["#eef3f9", "#c5d7e9", "#1b578f"] },
   { id: "harbor-dune", label: "Harbor Dune", swatches: ["#efeee5", "#dcece1", "#28675a"] },
   { id: "harbor-focus", label: "Harbor Focus", swatches: ["#e9f0f8", "#fcfdff", "#214ed6"] },
   { id: "harbor-deep", label: "Harbor Deep", swatches: ["#10263b", "#e4eef2", "#086363"] },
@@ -36,7 +37,6 @@ const STYLE_GROUPS = [
 ] as const;
 
 type InterfaceStyle = (typeof STYLES)[number]["id"];
-const DEFAULT_STYLE: InterfaceStyle = "harbor";
 const STORAGE_KEY = "degn:interface-style";
 
 function isInterfaceStyle(value: unknown): value is InterfaceStyle {
@@ -45,7 +45,7 @@ function isInterfaceStyle(value: unknown): value is InterfaceStyle {
 
 function getActiveStyle(): InterfaceStyle {
   const value = document.documentElement.dataset.degnStyle;
-  return isInterfaceStyle(value) ? value : DEFAULT_STYLE;
+  return isInterfaceStyle(value) ? value : DEFAULT_INTERFACE_STYLE;
 }
 
 function subscribe(onStyleChange: () => void): () => void {
@@ -78,7 +78,7 @@ function restoreStyle() {
 }
 
 export function StyleSwitcher() {
-  const active = useSyncExternalStore(subscribe, getActiveStyle, () => DEFAULT_STYLE);
+  const active = useSyncExternalStore(subscribe, getActiveStyle, () => DEFAULT_INTERFACE_STYLE);
   const activeLabel = STYLES.find((style) => style.id === active)?.label;
 
   useEffect(() => {

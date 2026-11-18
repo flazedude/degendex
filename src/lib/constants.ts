@@ -85,6 +85,8 @@ export const POPULAR_TOKENS: TokenInfo[] = [
   },
 ];
 
+export const DEFAULT_INTERFACE_STYLE = "harbor-grid";
+
 export const NAV_LINKS = [
   { label: "Trade", href: "/trade" },
   { label: "Swap", href: "/swap" },
