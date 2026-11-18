@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { RefreshCw, Wallet } from "lucide-react";
+import { SwapHistory } from "@/components/portfolio/SwapHistory";
 import { TokenLogo } from "@/components/swap/TokenLogo";
 import { totalValueUsd, type BalanceRow } from "@/components/trade/balanceRows";
 import { formatUsdPrice, formatUsdValue } from "@/components/trade/tradesFormat";
@@ -188,10 +189,13 @@ export default function PortfolioPage() {
         )}
       </div>
       {owner ? (
-        <ConnectedPortfolio key={owner} />
+        <div className="space-y-4">
+          <ConnectedPortfolio key={owner} />
+          <SwapHistory wallet={owner} />
+        </div>
       ) : (
         <Card className="items-center gap-3 border-border/50 px-4 py-12 text-center">
-          <p className="text-sm text-muted-foreground">Connect your wallet to view your Solana balances.</p>
+          <p className="text-sm text-muted-foreground">Connect your wallet to view balances and swap history.</p>
           <Button type="button" onClick={() => setVisible(true)} disabled={connecting}>
             <Wallet aria-hidden />
             {connecting ? "Connecting…" : "Connect wallet"}

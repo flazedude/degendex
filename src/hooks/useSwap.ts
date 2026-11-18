@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction, type PublicKey } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import { toast } from "sonner";
@@ -16,7 +16,10 @@ import {
   type PendingSwap,
   type SwapInFlight,
 } from "@/store/usePendingSwapStore";
+import { recordConfirmedSwap } from "@/store/useSwapReceipts";
 import { useRefreshBalances } from "@/hooks/useTokenBalance";
+import { isValidSolanaSignature } from "@/lib/jupiter/params";
+import { receiptFromExecute, swapExplorerAction } from "@/lib/swapReceipts";
 import { formatTokenAmount, fromBaseUnits, toBaseUnits } from "@/lib/amounts";
 import { base64ToBytes, bytesToBase58, bytesToBase64 } from "@/lib/jupiter/encoding";
 import {
@@ -47,8 +50,6 @@ const MAX_RETRY_AFTER_MS = 60_000;
 const RETRY_JITTER_MS = 1_000;
 /** How long an unknown /execute outcome blocks new swaps (tx validity window). */
 const PENDING_MAX_MS = 90_000;
-const STATUS_POLL_MS = 2_000;
-const RPC_TIMEOUT_MS = 8_000;
 export const SWAP_IN_PROGRESS_MESSAGE = "A swap is already in progress";
 
 export interface QuoteRequest {
@@ -196,15 +197,6 @@ function feePayerSignature(tx: VersionedTransaction, wallet: PublicKey): string 
   }
 }
 
-/** Rejects if `promise` takes longer than `ms` (RPC calls have no timeout). */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("RPC timeout")), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
 function parseBlockHeight(value: unknown): number | undefined {
   const n = typeof value === "string" ? Number(value) : value;
   return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : undefined;
@@ -217,17 +209,6 @@ function assertWalletSigns(tx: VersionedTransaction, wallet: PublicKey) {
   if (idx < 0 || idx >= header.numRequiredSignatures) {
     throw new Error("Transaction does not belong to your wallet");
   }
-}
-
-function solscanAction(signature: string | undefined) {
-  if (!signature) return undefined;
-  const url = `https://solscan.io/tx/${encodeURIComponent(signature)}`;
-  return {
-    label: "Solscan",
-    onClick: () => {
-      window.open(url, "_blank", "noopener,noreferrer");
-    },
-  };
 }
 
 /**
@@ -284,7 +265,6 @@ export interface ExecuteSwapOptions {
 
 export function useSwap(source?: SwapSource) {
   const { publicKey, signTransaction } = useWallet();
-  const { connection } = useConnection();
   const storeInputToken = useSwapStore((s) => s.inputToken);
   const storeOutputToken = useSwapStore((s) => s.outputToken);
   const storeInputAmount = useSwapStore((s) => s.inputAmount);
@@ -319,7 +299,7 @@ export function useSwap(source?: SwapSource) {
   const [result, setResult] = useState<QuoteResult | null>(null);
   const [inflightKey, setInflightKey] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
-  const pending = usePendingSwapStore((s) => s.pending);
+  const pending = usePendingSwapStore((s) => (taker ? s.pending[taker] ?? null : null));
   // Any swap from this wallet (this hook's, or one started by another mount).
   const inFlight = useSwapInFlight(taker);
   const [now, setNow] = useState(0);
@@ -330,10 +310,6 @@ export function useSwap(source?: SwapSource) {
   const mountedRef = useRef(false);
   /** At most one scheduled quote retry (after a 429 / network error). */
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Bumped to stop this hook's pending-swap watcher. */
-  const pendingSeqRef = useRef(0);
-  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const watchingRef = useRef(false);
   const runQuoteRef = useRef<(req: QuoteRequest) => Promise<void>>(async () => {});
   const latestRef = useRef({ request, result, inputToken, outputToken, setInputAmount });
   useEffect(() => {
@@ -455,130 +431,18 @@ export function useSwap(source?: SwapSource) {
     return () => clearInterval(id);
   }, []);
 
-  /** Stops this hook's watcher; the block itself stays in the store. */
-  const stopPendingWatch = useCallback(() => {
-    pendingSeqRef.current++;
-    watchingRef.current = false;
-    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
-    pendingTimerRef.current = null;
-  }, []);
-
   const dismissPending = useCallback(() => {
-    stopPendingWatch();
-    usePendingSwapStore.getState().clearPending();
-  }, [stopPendingWatch]);
+    if (pending && !pending.signature) usePendingSwapStore.getState().clearPending(pending);
+  }, [pending]);
 
-  /**
-   * Blocks new swaps while an unknown-outcome swap may still land. With a known
-   * signature, polls its status until it confirms, fails, or can no longer land
-   * (blockhash expired / 90s); without one (gasless), waits out 90s unless the
-   * user dismisses it after checking their wallet.
-   */
-  const watchPending = useCallback(
-    (p: PendingSwap) => {
-      stopPendingWatch();
-      const seq = pendingSeqRef.current;
-      const alive = () => seq === pendingSeqRef.current;
-      watchingRef.current = true;
-      const deadline = p.until;
-      const finish = () => {
-        if (!alive()) return;
-        stopPendingWatch();
-        usePendingSwapStore.getState().clearPending(p);
-        refreshBalances();
-      };
-      const wait = (ms: number) =>
-        new Promise<void>((resolve) => {
-          pendingTimerRef.current = setTimeout(resolve, ms);
-        });
-      const action = solscanAction(p.signature);
-      const opts = { id: p.toastId, action, duration: 10_000 };
-
-      const run = async () => {
-        const signature = p.signature;
-        if (!signature) {
-          await wait(Math.max(0, deadline - Date.now()));
-          if (!alive()) return;
-          toast("Previous swap window has passed. Check your wallet activity before swapping again", opts);
-          finish();
-          return;
-        }
-        let expired = false;
-        for (;;) {
-          await wait(STATUS_POLL_MS);
-          if (!alive()) return;
-          let checked = false;
-          let seen = false;
-          try {
-            const { value } = await withTimeout(
-              connection.getSignatureStatuses([signature], { searchTransactionHistory: true }),
-              RPC_TIMEOUT_MS
-            );
-            if (!alive()) return;
-            const st = value[0];
-            checked = true;
-            seen = !!st;
-            if (st?.err) {
-              toast.error("Swap failed on chain", opts);
-              finish();
-              return;
-            }
-            if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") {
-              toast.success(`Swap confirmed: ${p.summary}`, opts);
-              finish();
-              return;
-            }
-          } catch {
-            if (!alive()) return;
-            // RPC hiccup: keep polling until the deadline.
-          }
-          // Only a successful lookup after expiry proves it can no longer land.
-          if (expired && checked && !seen) {
-            toast.error("Swap did not land (transaction expired). You can swap again", opts);
-            finish();
-            return;
-          }
-          if (Date.now() >= deadline) {
-            toast.error("Swap not confirmed after 90s. Check your wallet activity before retrying", opts);
-            finish();
-            return;
-          }
-          if (p.lastValidBlockHeight !== undefined && !expired) {
-            try {
-              const height = await withTimeout(connection.getBlockHeight("confirmed"), RPC_TIMEOUT_MS);
-              if (!alive()) return;
-              // Re-check the status once more before declaring it dropped.
-              if (height > p.lastValidBlockHeight) expired = true;
-            } catch {
-              if (!alive()) return;
-            }
-          }
-        }
-      };
-      void run();
-    },
-    [connection, refreshBalances, stopPendingWatch]
-  );
-
-  // Abort on unmount. The pending-swap block stays in its store (it is keyed to
-  // a wallet), so a reconnect or leaving /swap cannot lift it early.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       cancelInflight();
       clearRetry();
-      stopPendingWatch();
     };
-  }, [cancelInflight, clearRetry, stopPendingWatch]);
-
-  // Watch a block nobody here is watching yet: one that outlived an earlier
-  // mount, or one recorded by a swap whose form unmounted while it ran.
-  useEffect(() => {
-    if (watchingRef.current || !pending) return;
-    if (pending.until <= Date.now()) usePendingSwapStore.getState().clearPending(pending);
-    else watchPending(pending);
-  }, [pending, watchPending]);
+  }, [cancelInflight, clearRetry]);
 
   const matching = request && result?.key === request.key ? result : null;
   const order = matching?.order ?? null;
@@ -634,6 +498,10 @@ export function useSwap(source?: SwapSource) {
 
       const inTok = snap.inputToken;
       const outTok = snap.outputToken;
+      const tokens = {
+        input: { mint: inTok.mint, symbol: inTok.symbol, decimals: inTok.decimals },
+        output: { mint: outTok.mint, symbol: outTok.symbol, decimals: outTok.decimals },
+      };
       // One swap per wallet at a time, across every form and page: a form
       // that remounted mid-swap starts with a fresh hook and must not sign a
       // second one while the first is still being signed or executed.
@@ -722,24 +590,24 @@ export function useSwap(source?: SwapSource) {
         }
 
         const signature =
-          (typeof data.signature === "string" && data.signature ? data.signature : undefined) ??
-          localSignature;
+          localSignature ?? (isValidSolanaSignature(data.signature) ? data.signature : undefined);
 
-        const inUi = formatTokenAmount(fromBaseUnits(order.inAmount, inTok.decimals));
         if (data.status === "Success") {
-          const inRaw =
-            typeof data.totalInputAmount === "string" && DIGITS.test(data.totalInputAmount)
-              ? data.totalInputAmount
-              : order.inAmount;
-          const outRaw =
-            typeof data.totalOutputAmount === "string" && DIGITS.test(data.totalOutputAmount)
-              ? data.totalOutputAmount
-              : order.outAmount;
-          const inUiFinal = formatTokenAmount(fromBaseUnits(inRaw, inTok.decimals));
-          const outUi = formatTokenAmount(fromBaseUnits(outRaw, outTok.decimals));
-          toast.success(`Swapped ${inUiFinal} ${inTok.symbol} for ${outUi} ${outTok.symbol}`, {
+          const receipt = receiptFromExecute({ wallet, signature, confirmedAt: Date.now(), ...tokens }, data);
+          if (receipt) recordConfirmedSwap(receipt);
+
+          const inUi = receipt?.inputAmountRaw == null
+            ? null
+            : formatTokenAmount(fromBaseUnits(receipt.inputAmountRaw, inTok.decimals));
+          const outUi = receipt?.outputAmountRaw == null
+            ? null
+            : formatTokenAmount(fromBaseUnits(receipt.outputAmountRaw, outTok.decimals));
+          const message = inUi !== null && outUi !== null
+            ? `Swapped ${inUi} ${inTok.symbol} for ${outUi} ${outTok.symbol}`
+            : `Swap confirmed: ${inTok.symbol} → ${outTok.symbol}`;
+          toast.success(message, {
             id: toastId,
-            action: solscanAction(signature),
+            action: swapExplorerAction(signature),
             duration: 10_000,
           });
           // The order's requestId is consumed: never show or reuse it again.
@@ -754,24 +622,23 @@ export function useSwap(source?: SwapSource) {
             signature
               ? "Swap status unknown. Checking whether it landed..."
               : describeExecuteError(EXECUTE_UNKNOWN_STATUS_CODE),
-            { id: toastId, action: solscanAction(signature), duration: PENDING_MAX_MS }
+            { id: toastId, action: swapExplorerAction(signature), duration: PENDING_MAX_MS }
           );
           const record: PendingSwap = {
-            wallet: publicKey.toBase58(),
+            wallet,
             signature,
             lastValidBlockHeight: parseBlockHeight(order.lastValidBlockHeight),
             until: Date.now() + PENDING_MAX_MS,
             toastId,
-            summary: `${inUi} ${inTok.symbol} → ${outTok.symbol}`,
+            summary: `${inTok.symbol} → ${outTok.symbol}`,
+            tokens,
           };
-          // Recorded even if unmounted: a later mount resumes watching it.
           usePendingSwapStore.getState().setPending(record);
-          if (mountedRef.current) watchPending(record);
         } else {
           requote = true;
           toast.error(describeExecuteError(data.code, data.error), {
             id: toastId,
-            action: solscanAction(signature),
+            action: swapExplorerAction(signature),
             duration: 10_000,
           });
         }
@@ -808,7 +675,6 @@ export function useSwap(source?: SwapSource) {
       runQuote,
       scheduleRetry,
       refreshBalances,
-      watchPending,
     ]
   );
 

@@ -5,6 +5,7 @@ import { DEFAULT_INTERFACE_STYLE } from "@/lib/constants";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { Navbar } from "@/components/layout/Navbar";
+import { PendingSwapMonitor } from "@/components/shared/PendingSwapMonitor";
 import { ConditionalFooter } from "@/components/layout/ConditionalFooter";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <QueryProvider>
           <SolanaProvider>
+            <PendingSwapMonitor />
             <Navbar />
             <main className="flex flex-1 flex-col">{children}</main>
             <ConditionalFooter />

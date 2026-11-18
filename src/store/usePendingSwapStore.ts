@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
+import type { SwapReceiptToken } from "@/lib/swapReceipts";
 
 /**
  * A swap whose /execute outcome is unknown: it may still land. Kept outside the
@@ -7,13 +8,14 @@ import { create } from "zustand";
  */
 export interface PendingSwap {
   wallet: string;
-  /** Known when the wallet paid the fee (signature computed before /execute). */
+  /** Returned by Jupiter or derived before submission for a wallet-paid swap. */
   signature?: string;
   lastValidBlockHeight?: number;
   /** Epoch ms after which the block lapses. */
   until: number;
   toastId: string | number;
   summary: string;
+  tokens?: { input: SwapReceiptToken; output: SwapReceiptToken };
 }
 
 /**
@@ -40,20 +42,24 @@ export interface SwapInFlight {
 export const SWAP_IN_FLIGHT_MAX_MS = 5 * 60_000;
 
 interface PendingSwapState {
-  pending: PendingSwap | null;
+  pending: Readonly<Record<string, PendingSwap>>;
   setPending: (pending: PendingSwap) => void;
-  /** Clears `pending` only if it is still the current record (or any, if omitted). */
-  clearPending: (pending?: PendingSwap) => void;
+  /** Clears a wallet's pending record if it still matches. */
+  clearPending: (pending: PendingSwap) => void;
   /** Running swaps, by wallet (at most one per wallet). */
   inFlight: Readonly<Record<string, SwapInFlight>>;
 }
 
-export const usePendingSwapStore = create<PendingSwapState>((set, get) => ({
-  pending: null,
-  setPending: (pending) => set({ pending }),
-  clearPending: (pending) => {
-    if (!pending || get().pending === pending) set({ pending: null });
-  },
+export const usePendingSwapStore = create<PendingSwapState>((set) => ({
+  pending: {},
+  setPending: (record) =>
+    set((state) => ({ pending: { ...state.pending, [record.wallet]: record } })),
+  clearPending: (record) => set((state) => {
+    if (state.pending[record.wallet] !== record) return state;
+    const pending = { ...state.pending };
+    delete pending[record.wallet];
+    return { pending };
+  }),
   inFlight: {},
 }));
 
@@ -114,6 +120,6 @@ export function useSwapInFlight(wallet: string | null | undefined): SwapInFlight
 
 /** Whether swaps from `wallet` are blocked by an earlier unknown-outcome swap. */
 export function isSwapBlocked(wallet: string, now: number = Date.now()): boolean {
-  const p = usePendingSwapStore.getState().pending;
-  return !!p && p.wallet === wallet && p.until > now;
+  const p = usePendingSwapStore.getState().pending[wallet];
+  return !!p && p.until > now;
 }
