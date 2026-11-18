@@ -1,0 +1,145 @@
+html[data-degn-style="harbor-focus"] {
+  --radius: 12px;
+  --background: #e9f0f8;
+  --foreground: #152945;
+  --card: #ffffff;
+  --card-foreground: #152945;
+  --primary: #214ed6;
+  --primary-foreground: #ffffff;
+  --secondary: #183c6b;
+  --secondary-foreground: #ffffff;
+  --muted: #e7eff9;
+  --muted-foreground: #435976;
+  --accent: #e2ebff;
+  --accent-foreground: #1c43b4;
+  --border: #c5d5e9;
+  --input: #b4c7e3;
+  --ring: #214ed6;
+  --chart-background: #fcfdff;
+  --chart-text: #49617f;
+  --chart-grid: #d6e1f0;
+  --chart-up: #137359;
+  --chart-down: #ac3553;
+  --harbor-shadow: 0 1px 3px #233f690e, 0 5px 16px #233f6907;
+}
+
+html[data-degn-style="harbor-focus"] .degn-nav-links {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+html[data-degn-style="harbor-focus"] .degn-nav-link {
+  border-radius: 0.5rem;
+}
+
+html[data-degn-style="harbor-focus"] .degn-nav-link[aria-current="page"] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+html[data-degn-style="harbor-focus"] .degn-terminal {
+  max-width: 104rem;
+  gap: 0.75rem;
+  padding-inline: clamp(0.7rem, 1.75vw, 1.75rem);
+}
+
+html[data-degn-style="harbor-focus"] .degn-market-bar {
+  align-items: center;
+  background: #f4f8ff;
+}
+
+html[data-degn-style="harbor-focus"] .degn-market-bar button[aria-label="Open market list"] {
+  display: flex;
+  height: 2.25rem;
+  gap: 0.4rem;
+  margin-inline-start: 0.65rem;
+  padding-inline: 0.65rem;
+  border: 1px solid #a9bdf0;
+  border-radius: 0.55rem;
+  background: var(--accent);
+}
+
+html[data-degn-style="harbor-focus"] .degn-market-bar button[aria-label="Open market list"]:hover {
+  background: #d4e1ff;
+}
+
+html[data-degn-style="harbor-focus"] .degn-market-bar > div:last-child > div {
+  height: 3.35rem;
+  gap: clamp(0.8rem, 1.6vw, 1.5rem);
+}
+
+html[data-degn-style="harbor-focus"] .degn-market-rail {
+  display: none;
+}
+
+html[data-degn-style="harbor-focus"] .degn-chart-panel {
+  border-top: 2px solid #9bb7f7;
+}
+
+html[data-degn-style="harbor-focus"] .degn-chart-panel > div > div:first-child {
+  padding: 0.42rem 0.65rem;
+  background: #f3f7ff;
+}
+
+html[data-degn-style="harbor-focus"] .degn-chart-panel [aria-label="Timeframe"] button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+html[data-degn-style="harbor-focus"] .degn-ticket {
+  border-color: #b8cae8;
+}
+
+html[data-degn-style="harbor-focus"] .degn-ticket > div {
+  padding: clamp(0.75rem, 1.3vw, 1.1rem);
+}
+
+html[data-degn-style="harbor-focus"] .degn-ticket [role="tablist"] {
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: var(--muted);
+}
+
+html[data-degn-style="harbor-focus"] .degn-ticket [role="tab"] {
+  flex: 1;
+  margin: 0;
+  border: 0;
+  border-radius: 0.4rem;
+  text-align: center;
+}
+
+html[data-degn-style="harbor-focus"] .degn-ticket [role="tab"][aria-selected="true"] {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: 0 1px 3px #233f6924;
+}
+
+html[data-degn-style="harbor-focus"] .degn-swap-card {
+  max-width: 30rem;
+  border-top: 2px solid #9bb7f7;
+}
+
+@media (min-width: 64rem) {
+  html[data-degn-style="harbor-focus"] .degn-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 21rem);
+    grid-template-rows: minmax(clamp(24rem, 58dvh, 36rem), 1fr) clamp(13.5rem, 22dvh, 16rem);
+    grid-template-areas:
+      "chart ticket"
+      "account tape";
+  }
+
+  html[data-degn-style="harbor-focus"] .degn-ticket {
+    align-self: start;
+    max-height: 100%;
+  }
+}
+
+@media (max-width: 63.999rem) {
+  html[data-degn-style="harbor-focus"] .degn-chart-panel {
+    height: clamp(18rem, 53dvh, 30rem);
+    min-height: 0;
+  }
+}

@@ -1,0 +1,137 @@
+html[data-degn-style="harbor-deep"] {
+  --radius: 11px;
+  --background: #e4eef2;
+  --foreground: #102e40;
+  --card: #fcfeff;
+  --card-foreground: #102e40;
+  --primary: #086363;
+  --secondary: #183f57;
+  --muted: #dfebf0;
+  --muted-foreground: #3e5969;
+  --accent: #d9eeeb;
+  --accent-foreground: #144d50;
+  --destructive: #a43651;
+  --border: #bfd4de;
+  --input: #a4c3d1;
+  --ring: #118074;
+  --chart-background: #fcfeff;
+  --chart-text: #37586b;
+  --chart-grid: #d1e2e9;
+  --chart-up: #107057;
+  --chart-down: #a43651;
+  --harbor-shadow: 0 1px 2px #133d5312, 0 5px 14px #133d530c;
+}
+
+html[data-degn-style="harbor-deep"] .degn-header,
+html[data-degn-style="harbor-deep"] .degn-market-rail {
+  color-scheme: dark;
+  --background: #152e43;
+  --foreground: #eaf6fb;
+  --card: #142a3e;
+  --card-foreground: #eaf6fb;
+  --primary: #99e5d8;
+  --primary-foreground: #102e34;
+  --muted: #213e54;
+  --muted-foreground: #a8c3d0;
+  --accent: #23485a;
+  --accent-foreground: #ecfbfa;
+  --destructive: #ff9caf;
+  --border: #395970;
+  --input: #46677e;
+  --ring: #99e5d8;
+  --chart-up: #79deba;
+  --chart-down: #ff9caf;
+  --color-yellow-400: #f6d786;
+  --color-yellow-500: #f6d786;
+  color: var(--foreground);
+}
+
+html[data-degn-style="harbor-deep"] .degn-header {
+  background: #10263b;
+  border-bottom-color: #395970;
+}
+
+html[data-degn-style="harbor-deep"] .degn-nav {
+  max-width: 102rem;
+  min-height: 3.75rem;
+}
+
+html[data-degn-style="harbor-deep"] .degn-wordmark {
+  color: #f4fbff;
+}
+
+html[data-degn-style="harbor-deep"] .degn-header .degn-style-trigger {
+  color: var(--foreground);
+  background: #19344b;
+}
+
+html[data-degn-style="harbor-deep"] .degn-header .degn-style-trigger:hover {
+  background: #24465e;
+}
+
+html[data-degn-style="harbor-deep"] .degn-nav-links {
+  gap: 0.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-degn-style="harbor-deep"] .degn-nav-links .degn-nav-link {
+  border-bottom: 2px solid transparent;
+  border-radius: 0.4rem 0.4rem 0 0;
+  padding: 0.55rem 0.68rem 0.4rem;
+}
+
+html[data-degn-style="harbor-deep"] .degn-nav-links .degn-nav-link[aria-current="page"] {
+  border-color: var(--primary);
+  background: #1b364d;
+  box-shadow: none;
+}
+
+html[data-degn-style="harbor-deep"] .degn-terminal {
+  max-width: 102rem;
+  padding-inline: clamp(0.65rem, 1.5vw, 1.25rem);
+}
+
+html[data-degn-style="harbor-deep"] :is(.degn-terminal, .degn-workspace) {
+  gap: 0.65rem;
+}
+
+html[data-degn-style="harbor-deep"] .degn-market-bar {
+  background: #f2fafb;
+  box-shadow: none;
+}
+
+html[data-degn-style="harbor-deep"] .degn-market-bar > div:last-child > div,
+html[data-degn-style="harbor-deep"] .degn-market-bar button[aria-label="Open market list"] {
+  height: 3.35rem;
+}
+
+html[data-degn-style="harbor-deep"] .degn-market-rail input[aria-label="Search Solana tokens"] {
+  min-height: 1.72rem;
+  border-radius: 0.4rem;
+  background: #1b394f;
+}
+
+html[data-degn-style="harbor-deep"] .degn-market-rail input[aria-label="Search Solana tokens"]::placeholder {
+  color: #a8c3d0;
+}
+
+html[data-degn-style="harbor-deep"] .degn-ticket [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
+
+html[data-degn-style="harbor-deep"] .degn-swap-card {
+  border-top: 3px solid var(--secondary);
+}
+
+@media (min-width: 64rem) {
+  html[data-degn-style="harbor-deep"] .degn-workspace {
+    grid-template:
+      "markets chart ticket" minmax(24rem, 53dvh)
+      "markets account tape" clamp(13rem, 22dvh, 17rem)
+      / minmax(10.5rem, 0.84fr) minmax(0, 2.65fr) minmax(17rem, 1.2fr);
+  }
+}

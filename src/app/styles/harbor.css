@@ -1,4 +1,4 @@
-html[data-degn-style="harbor"] {
+html[data-degn-style|="harbor"] {
   color-scheme: light;
   --radius: 14px;
   --background: #eaf2f5;
@@ -32,12 +32,12 @@ html[data-degn-style="harbor"] {
   --harbor-shadow: 0 1px 2px #17394a0c, 0 8px 20px #17394a0a;
 }
 
-html[data-degn-style="harbor"] .degn-header {
+html[data-degn-style|="harbor"] .degn-header {
   background: var(--card);
   border-color: var(--border);
 }
 
-html[data-degn-style="harbor"] .degn-nav {
+html[data-degn-style|="harbor"] .degn-nav {
   width: 100%;
   max-width: 96rem;
   min-height: 3.75rem;
@@ -45,13 +45,13 @@ html[data-degn-style="harbor"] .degn-nav {
   padding-inline: clamp(0.75rem, 2vw, 1.75rem);
 }
 
-html[data-degn-style="harbor"] .degn-wordmark > span:first-child {
+html[data-degn-style|="harbor"] .degn-wordmark > span:first-child {
   font-size: 1.3rem;
   font-weight: 750;
   letter-spacing: -0.04em;
 }
 
-html[data-degn-style="harbor"] .degn-nav-links {
+html[data-degn-style|="harbor"] .degn-nav-links {
   gap: 0.25rem;
   padding: 0.25rem;
   border: 1px solid var(--border);
@@ -59,18 +59,18 @@ html[data-degn-style="harbor"] .degn-nav-links {
   background: var(--background);
 }
 
-html[data-degn-style="harbor"] .degn-nav-link {
+html[data-degn-style|="harbor"] .degn-nav-link {
   padding: 0.38rem 0.65rem;
   border-radius: 999px;
 }
 
-html[data-degn-style="harbor"] .degn-nav-link[aria-current="page"] {
+html[data-degn-style|="harbor"] .degn-nav-link[aria-current="page"] {
   background: var(--card);
   color: var(--primary);
   box-shadow: 0 1px 3px #17394a1a;
 }
 
-html[data-degn-style="harbor"] .degn-terminal {
+html[data-degn-style|="harbor"] .degn-terminal {
   width: 100%;
   max-width: 96rem;
   height: auto;
@@ -80,11 +80,11 @@ html[data-degn-style="harbor"] .degn-terminal {
   overflow: visible;
 }
 
-html[data-degn-style="harbor"] .degn-workspace {
+html[data-degn-style|="harbor"] .degn-workspace {
   gap: 0.8rem;
 }
 
-html[data-degn-style="harbor"] :is(.degn-market-bar, .degn-market-rail, .degn-chart-panel, .degn-account, .degn-tape, .degn-ticket) {
+html[data-degn-style|="harbor"] :is(.degn-market-bar, .degn-market-rail, .degn-chart-panel, .degn-account, .degn-tape, .degn-ticket) {
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -93,14 +93,14 @@ html[data-degn-style="harbor"] :is(.degn-market-bar, .degn-market-rail, .degn-ch
   box-shadow: var(--harbor-shadow);
 }
 
-html[data-degn-style="harbor"] .degn-market-bar > div:last-child > div {
+html[data-degn-style|="harbor"] .degn-market-bar > div:last-child > div {
   height: 3.85rem;
   padding-inline: 0.85rem;
   border-bottom: 0;
   background: transparent;
 }
 
-html[data-degn-style="harbor"] .degn-market-bar button[aria-label="Open market list"] {
+html[data-degn-style|="harbor"] .degn-market-bar button[aria-label="Open market list"] {
   height: 3.85rem;
   border-bottom: 0;
   color: var(--primary);
@@ -108,89 +108,89 @@ html[data-degn-style="harbor"] .degn-market-bar button[aria-label="Open market l
   font-weight: 650;
 }
 
-html[data-degn-style="harbor"] .degn-market-bar p.font-mono.text-sm {
+html[data-degn-style|="harbor"] .degn-market-bar p.font-mono.text-sm {
   font-size: 1.13rem;
 }
 
-html[data-degn-style="harbor"] .degn-chart-panel [aria-label="Timeframe"] button {
+html[data-degn-style|="harbor"] .degn-chart-panel [aria-label="Timeframe"] button {
   min-height: 1.65rem;
   padding-inline: 0.43rem;
   border-radius: 0.45rem;
 }
 
-html[data-degn-style="harbor"] :is(.degn-ticket, .degn-account) [role="tab"] {
+html[data-degn-style|="harbor"] :is(.degn-ticket, .degn-account) [role="tab"] {
   min-height: 2rem;
   padding-inline: 0.65rem;
 }
 
-html[data-degn-style="harbor"] .degn-ticket > div {
+html[data-degn-style|="harbor"] .degn-ticket > div {
   padding: 0.95rem;
 }
 
-html[data-degn-style="harbor"] .degn-ticket :is(button[aria-pressed], [role="tabpanel"] > div > .border) {
+html[data-degn-style|="harbor"] .degn-ticket :is(button[aria-pressed], [role="tabpanel"] > div > .border) {
   border-radius: 0.62rem;
 }
 
-html[data-degn-style="harbor"] .degn-ticket [role="tabpanel"] > div > .border,
-html[data-degn-style="harbor"] .border-gradient > .border {
+html[data-degn-style|="harbor"] .degn-ticket [role="tabpanel"] > div > .border,
+html[data-degn-style|="harbor"] .border-gradient > .border {
   padding: 0.65rem;
   border-radius: 0.75rem;
   background: var(--background);
 }
 
-html[data-degn-style="harbor"] .degn-ticket [data-slot="button"].w-full {
+html[data-degn-style|="harbor"] .degn-ticket [data-slot="button"].w-full {
   min-height: 2.55rem;
   border-radius: 0.7rem;
 }
 
-html[data-degn-style="harbor"] .degn-ticket input[aria-label^="Amount"] {
+html[data-degn-style|="harbor"] .degn-ticket input[aria-label^="Amount"] {
   font-size: 1.15rem;
 }
 
-html[data-degn-style="harbor"] .degn-tape h2 {
+html[data-degn-style|="harbor"] .degn-tape h2 {
   font-size: 0.84rem;
   font-weight: 700;
 }
 
-html[data-degn-style="harbor"] .degn-swap-card {
+html[data-degn-style|="harbor"] .degn-swap-card {
   max-width: 33rem;
   padding: clamp(0.95rem, 3vw, 1.5rem);
   background: var(--card);
 }
 
-html[data-degn-style="harbor"] .degn-swap-card h1 {
+html[data-degn-style|="harbor"] .degn-swap-card h1 {
   font-size: 1.15rem;
   text-transform: none;
   letter-spacing: -0.02em;
 }
 
-html[data-degn-style="harbor"] :is([data-slot="card"], .border-gradient) {
+html[data-degn-style|="harbor"] :is([data-slot="card"], .border-gradient) {
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) + 2px);
   box-shadow: var(--harbor-shadow);
 }
 
-html[data-degn-style="harbor"] :is(.glow-green, .glow-green-sm, .glow-purple) {
+html[data-degn-style|="harbor"] :is(.glow-green, .glow-green-sm, .glow-purple) {
   box-shadow: none;
 }
 
-html[data-degn-style="harbor"] .animated-gradient {
+html[data-degn-style|="harbor"] .animated-gradient {
   animation: none;
   background: var(--card);
 }
 
 @media (max-width: 63.999rem) {
-  html[data-degn-style="harbor"] .degn-chart-panel {
+  html[data-degn-style|="harbor"] .degn-chart-panel {
     height: clamp(20rem, 51dvh, 33rem);
   }
 }
 
 @media (min-width: 64rem) {
-  html[data-degn-style="harbor"] .degn-terminal {
+  html[data-degn-style|="harbor"] .degn-terminal {
     min-height: calc(100dvh - 3.75rem);
   }
 
-  html[data-degn-style="harbor"] .degn-workspace {
+  html[data-degn-style|="harbor"] .degn-workspace {
     display: grid;
     grid-template-columns: minmax(10rem, 0.75fr) minmax(0, 2.4fr) minmax(17.5rem, 1.12fr);
     grid-template-rows: minmax(23rem, 1fr) 13rem;
@@ -199,34 +199,34 @@ html[data-degn-style="harbor"] .animated-gradient {
       "markets tape account";
   }
 
-  html[data-degn-style="harbor"] :is(.degn-chart-group, .degn-order-group) {
+  html[data-degn-style|="harbor"] :is(.degn-chart-group, .degn-order-group) {
     display: contents;
   }
 
-  html[data-degn-style="harbor"] .degn-market-rail {
+  html[data-degn-style|="harbor"] .degn-market-rail {
     grid-area: markets;
     width: auto;
     min-height: 0;
   }
 
-  html[data-degn-style="harbor"] .degn-chart-panel {
+  html[data-degn-style|="harbor"] .degn-chart-panel {
     grid-area: chart;
     height: auto;
   }
 
-  html[data-degn-style="harbor"] .degn-ticket {
+  html[data-degn-style|="harbor"] .degn-ticket {
     grid-area: ticket;
     align-self: start;
     max-height: 100%;
     overflow-y: auto;
   }
 
-  html[data-degn-style="harbor"] .degn-account {
+  html[data-degn-style|="harbor"] .degn-account {
     grid-area: account;
     height: auto;
   }
 
-  html[data-degn-style="harbor"] .degn-tape {
+  html[data-degn-style|="harbor"] .degn-tape {
     grid-area: tape;
     min-height: 0;
   }

@@ -5,6 +5,11 @@
 @import "./styles/signal.css";
 @import "./styles/copper.css";
 @import "./styles/harbor.css";
+@import "./styles/harbor-air.css";
+@import "./styles/harbor-grid.css";
+@import "./styles/harbor-dune.css";
+@import "./styles/harbor-focus.css";
+@import "./styles/harbor-deep.css";
 
 @theme inline {
   --color-background: var(--background);

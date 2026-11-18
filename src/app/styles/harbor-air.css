@@ -1,0 +1,161 @@
+html[data-degn-style="harbor-air"] {
+  --radius: 22px;
+  --background: #edf8f4;
+  --foreground: #152e31;
+  --card: #ffffff;
+  --card-foreground: #152e31;
+  --primary: #087166;
+  --secondary: #215755;
+  --muted: #e0f3ed;
+  --muted-foreground: #405d5d;
+  --accent: #d4f0e8;
+  --accent-foreground: #15524c;
+  --border: #bdded5;
+  --input: #a9d4c8;
+  --ring: #087166;
+  --chart-background: #fcfffe;
+  --chart-text: #486564;
+  --chart-grid: #d5eae3;
+  --chart-up: #167456;
+  --chart-down: #a23252;
+  --harbor-shadow: 0 3px 8px #234a3f08, 0 12px 26px #234a3f0b;
+}
+
+html[data-degn-style="harbor-air"] .degn-header {
+  background: #f8fdfa;
+}
+
+html[data-degn-style="harbor-air"] .degn-nav {
+  min-height: 4rem;
+  max-width: 98rem;
+  padding-inline: clamp(0.75rem, 2.5vw, 2.35rem);
+}
+
+html[data-degn-style="harbor-air"] .degn-nav-links {
+  gap: 0.18rem;
+  border-color: transparent;
+  background: var(--muted);
+}
+
+html[data-degn-style="harbor-air"] .degn-nav-link {
+  padding-inline: 0.78rem;
+}
+
+html[data-degn-style="harbor-air"] .degn-terminal {
+  max-width: 98rem;
+  gap: clamp(0.85rem, 1.6vw, 1.45rem);
+  padding: clamp(0.85rem, 2vw, 1.75rem) clamp(0.75rem, 2.5vw, 2.35rem) 2rem;
+}
+
+html[data-degn-style="harbor-air"] .degn-workspace {
+  gap: clamp(0.85rem, 1.6vw, 1.45rem);
+}
+
+html[data-degn-style="harbor-air"] .degn-market-bar {
+  background: #f8fdfa;
+}
+
+html[data-degn-style="harbor-air"] .degn-market-bar > div:last-child > div {
+  height: 4.35rem;
+  gap: clamp(1.15rem, 2.15vw, 2.15rem);
+  padding-inline: clamp(0.9rem, 1.75vw, 1.55rem);
+}
+
+html[data-degn-style="harbor-air"] .degn-market-bar button[aria-label="Open market list"] {
+  height: 4.35rem;
+}
+
+html[data-degn-style="harbor-air"] .degn-market-bar p.font-mono.text-sm {
+  font-size: clamp(1rem, 2.9vw, 1.36rem);
+  letter-spacing: -0.035em;
+}
+
+html[data-degn-style="harbor-air"] .degn-chart-panel {
+  background: var(--chart-background);
+}
+
+html[data-degn-style="harbor-air"] .degn-chart-panel [aria-label="Timeframe"] {
+  gap: 0.2rem;
+  margin-block: 0.15rem;
+  padding: 0.22rem;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+html[data-degn-style="harbor-air"] .degn-chart-panel [aria-label="Timeframe"] button {
+  min-height: 1.7rem;
+  padding-inline: clamp(0.36rem, 0.7vw, 0.65rem);
+  border-radius: 999px;
+}
+
+html[data-degn-style="harbor-air"] .degn-chart-panel [aria-label="Timeframe"] button[aria-pressed="true"] {
+  background: var(--card);
+  box-shadow: 0 1px 4px #234a3f1c;
+}
+
+html[data-degn-style="harbor-air"] .degn-market-rail input[aria-label="Search Solana tokens"] {
+  min-height: 2.15rem;
+  border-radius: 0.75rem;
+}
+
+html[data-degn-style="harbor-air"] .degn-ticket > div {
+  padding: clamp(1rem, 1.45vw, 1.4rem);
+}
+
+html[data-degn-style="harbor-air"] .degn-ticket [role="tablist"] {
+  width: fit-content;
+  max-width: 100%;
+  gap: 0.13rem;
+  padding: 0.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+html[data-degn-style="harbor-air"] .degn-ticket [role="tab"] {
+  min-height: 1.95rem;
+  margin: 0;
+  padding-inline: clamp(0.57rem, 1vw, 0.82rem);
+  border: 0;
+  border-radius: 999px;
+}
+
+html[data-degn-style="harbor-air"] .degn-ticket [role="tab"][aria-selected="true"] {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: 0 1px 4px #234a3f1a;
+}
+
+html[data-degn-style="harbor-air"] :is(.degn-ticket [role="tabpanel"] > div, .degn-swap-card) > .border {
+  border-radius: 0.9rem;
+}
+
+html[data-degn-style="harbor-air"] .degn-ticket [data-slot="button"].w-full {
+  min-height: 2.8rem;
+  border-radius: 999px;
+}
+
+html[data-degn-style="harbor-air"] .degn-swap-card {
+  max-width: 34rem;
+  padding: clamp(1rem, 4vw, 1.75rem);
+}
+
+@media (min-width: 64rem) {
+  html[data-degn-style="harbor-air"] .degn-workspace {
+    grid-template-columns: minmax(10rem, 0.77fr) minmax(0, 2.55fr) minmax(17.25rem, 1.18fr);
+    grid-template-rows: minmax(28rem, 57vh) 14rem;
+    grid-template-areas:
+      "markets chart ticket"
+      "markets account tape";
+  }
+
+  html[data-degn-style="harbor-air"] .degn-ticket {
+    align-self: stretch;
+  }
+}
+
+@media (max-width: 63.999rem) {
+  html[data-degn-style="harbor-air"] .degn-chart-panel {
+    height: clamp(21rem, 50dvh, 32rem);
+  }
+}
