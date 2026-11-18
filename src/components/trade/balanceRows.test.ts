@@ -46,6 +46,27 @@ describe("buildBalanceRows", () => {
     expect(rows.filter((r) => r.isCurrent)).toHaveLength(1);
   });
 
+  it("labels wrapped SOL separately and values it at the SOL price", () => {
+    const rows = buildBalanceRows(
+      [
+        { mint: SOL_MINT, raw: "1000000000", decimals: 9 },
+        { mint: SOL_MINT, raw: "500000000", decimals: 9, wrappedSol: true },
+      ],
+      meta,
+      prices,
+      SOL_MINT
+    );
+    expect(rows[0]).toMatchObject({ symbol: "SOL", valueUsd: 107, isCurrent: true });
+    expect(rows[1]).toMatchObject({
+      symbol: "wSOL",
+      name: "Wrapped SOL",
+      wrappedSol: true,
+      valueUsd: 53.5,
+      isCurrent: false,
+    });
+    expect(totalValueUsd(rows)).toBe(160.5);
+  });
+
   it("keeps precision past float range", () => {
     const rows = buildBalanceRows(
       [{ mint: USDC_MINT, raw: "123456789123456789", decimals: 9 }],

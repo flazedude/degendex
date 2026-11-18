@@ -24,6 +24,36 @@ import { useWalletAssetRows } from "@/hooks/useWalletAssetRows";
 import { useWalletHoldings } from "@/hooks/useWalletHoldings";
 import { cn, shortenAddress } from "@/lib/utils";
 
+function AssetName({ row }: { row: BalanceRow }) {
+  const name = (
+    <>
+      <TokenLogo symbol={row.symbol} logoURI={row.logoURI} className="size-5 sm:size-7" />
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{row.symbol}</span>
+        {(row.wrappedSol || row.isVerified) && row.name && row.name !== row.symbol && (
+          <span className="block truncate text-[11px] text-muted-foreground">{row.name}</span>
+        )}
+        {row.known && !row.isVerified && !row.wrappedSol && (
+          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+            Unverified · {shortenAddress(row.mint)}
+          </span>
+        )}
+      </span>
+    </>
+  );
+  if (row.wrappedSol) return <span className="flex min-w-0 items-center gap-2">{name}</span>;
+
+  return (
+    <Link
+      href={`/trade?mint=${encodeURIComponent(row.mint)}`}
+      title={row.mint}
+      className="flex min-w-0 items-center gap-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-ring"
+    >
+      {name}
+    </Link>
+  );
+}
+
 function AssetTable({ rows }: { rows: readonly BalanceRow[] }) {
   return (
     <Table className="table-fixed text-xs sm:text-sm" aria-label="Wallet assets">
@@ -37,26 +67,9 @@ function AssetTable({ rows }: { rows: readonly BalanceRow[] }) {
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
-          <TableRow key={row.mint}>
+          <TableRow key={row.wrappedSol ? "wrapped-sol" : row.mint}>
             <TableCell className="px-3 py-3 sm:px-5">
-              <Link
-                href={`/trade?mint=${encodeURIComponent(row.mint)}`}
-                title={row.mint}
-                className="flex min-w-0 items-center gap-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-ring"
-              >
-                <TokenLogo symbol={row.symbol} logoURI={row.logoURI} className="size-5 sm:size-7" />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{row.symbol}</span>
-                  {row.known && !row.isVerified && (
-                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      Unverified · {shortenAddress(row.mint)}
-                    </span>
-                  )}
-                  {row.isVerified && row.name && row.name !== row.symbol && (
-                    <span className="block truncate text-[11px] text-muted-foreground">{row.name}</span>
-                  )}
-                </span>
-              </Link>
+              <AssetName row={row} />
             </TableCell>
             <TableCell className="text-right font-mono break-all whitespace-normal tabular-nums" title={row.ui}>
               {row.balance}
@@ -81,7 +94,7 @@ function AssetTable({ rows }: { rows: readonly BalanceRow[] }) {
 }
 
 function ConnectedPortfolio() {
-  const holdings = useWalletHoldings();
+  const holdings = useWalletHoldings({ includeWrappedSol: true });
   const refreshBalances = useRefreshBalances();
   const assets = useMemo(() => holdings.data?.filter((holding) => holding.raw !== "0"), [holdings.data]);
   const { rows, metadata, prices } = useWalletAssetRows(assets);

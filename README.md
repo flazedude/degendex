@@ -17,7 +17,7 @@ makers and more), so it inherits their depth and audited contracts.
 | Explore | Live, read-only. Top Solana pairs from DexScreener. |
 | Liquidity | Pool explorer is live (Raydium API). Deposits open on Raydium; in-app deposits are on the roadmap. |
 | Trade terminal | Solana-only markets (curated verified tokens plus search for any token) with live prices, on-chain candles and recent trades (GeckoTerminal), market orders in place (same Jupiter engine as Swap), wallet balances. Limit orders and time-based DCA through the Jupiter Trigger API v2 (beta, see [Limit orders and DCA](#limit-orders-and-dca)). |
-| Portfolio | Read-only wallet balances for native SOL and SPL tokens (including Token-2022), with a subtotal for assets with a USD price. |
+| Portfolio | Read-only wallet balances for native and wrapped SOL and other SPL tokens (including Token-2022), with a subtotal for assets with a USD price. |
 
 ## Getting started
 

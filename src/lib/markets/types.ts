@@ -86,6 +86,8 @@ export interface WalletHolding {
   /** Base units. */
   raw: string;
   decimals: number;
+  /** An SPL wrapped SOL balance sharing SOL's mint and market price. */
+  wrappedSol?: true;
 }
 
 export const TIMEFRAMES: readonly Timeframe[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
